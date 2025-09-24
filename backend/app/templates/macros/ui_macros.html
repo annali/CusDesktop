@@ -1,0 +1,14 @@
+{% macro Toolbar(title, right_html='') -%}
+<div class="toolbar">
+  <h1 class="page-title">{{ title }}</h1>
+  <div class="toolbar-actions">{{ right_html|safe }}</div>
+</div>
+{%- endmacro %}
+
+{% macro Pill(text, color='gray') -%}
+<span class="pill pill-{{ color }}">{{ text }}</span>
+{%- endmacro %}
+
+{% macro KV(key, value) -%}
+<div class="kv"><span class="k">{{ key }}</span><span class="v">{{ value }}</span></div>
+{%- endmacro %}

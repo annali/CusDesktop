@@ -1,0 +1,219 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'projects' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'project_category' %}
+{% block title %}報表管理｜分類分布{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 18px rgba(15,23,42,.06); border-radius:14px; background:#fff; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; flex-direction:column; gap:4px; padding:12px 16px; border-radius:12px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.06); }
+  .kpi .label{ color:#64748b; font-size:.9rem; }
+  .kpi .value{ font-size:1.4rem; font-weight:800; }
+  .text-trunc{ max-width:340px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .table thead th{ white-space:nowrap; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">分類分布</h2>
+  </div>
+
+  <!-- 篩選列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.project_category_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">專案（留空=全部）</label>
+      <select class="form-select" name="project_sid" id="projectSid">
+        <option value="">全部專案</option>
+        {% for p in projects %}
+          <option value="{{ p.project_sid }}" {% if (params.project_sid|string)==(p.project_sid|string) %}selected{% endif %}>{{ p.project_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">類別群組</label>
+      <select class="form-select" name="type_group" id="typeGroup">
+        <option value="">全部群組</option>
+        {% for g in type_groups %}
+          <option value="{{ g }}" {% if params.type_group==g %}selected{% endif %}>{{ g }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.project_category_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <!-- KPI -->
+  <div class="row g-3 mb-2">
+    <div class="col-6 col-lg-3"><div class="kpi"><div class="label">期間新增總數</div><div id="kpiTotal" class="value">{{ chart_data.kpi.total }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="kpi"><div class="label">涵蓋類別數</div><div id="kpiCats" class="value">{{ chart_data.kpi.categories }}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="kpi"><div class="label">前一類占比</div><div id="kpiTop" class="value">{% if chart_data.kpi.top.label %}{{ chart_data.kpi.top.label }}（{{ '%.1f'|format(chart_data.kpi.top.pct) }}%）{% else %}-{% endif %}</div></div></div>
+    <div class="col-6 col-lg-3"><div class="kpi"><div class="label">已完成占比（樣本）</div><div id="kpiClosedPct" class="value">{{ '%.1f'|format(chart_data.kpi.closed_pct) }}%</div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-5">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">類別圓餅圖</h5>
+        <canvas id="pieChart" style="max-height:420px"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-lg-7">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">各類別 Open / Closed（橫向堆疊）</h5>
+        <canvas id="stackChart" style="max-height:420px"></canvas>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">明細</h5>
+        <div class="table-responsive">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="min-width:280px;">類別</th>
+                <th class="text-end">數量</th>
+                <th class="text-end">占比</th>
+                <th class="text-end">Open</th>
+                <th class="text-end">Closed</th>
+              </tr>
+            </thead>
+            <tbody id="rowsBody">
+              {% for r in chart_data.rows %}
+              <tr>
+                <td class="text-trunc">{{ r.type_name }}</td>
+                <td class="text-end">{{ r.count }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.percent) }}%</td>
+                <td class="text-end">{{ r.open }}</td>
+                <td class="text-end">{{ r.closed }}</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.rows|length == 0 %}
+              <tr><td colspan="5" class="text-center text-muted py-3">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const initData = {{ chart_data|tojson }};
+
+  // Pie
+  const pieCtx = document.getElementById('pieChart');
+  const pie = new Chart(pieCtx, {
+    type: 'pie',
+    data: {
+      labels: initData.pie.labels || [],
+      datasets: [{
+        data: initData.pie.counts || [],
+        backgroundColor: (initData.pie.palette || []),
+        borderWidth: 0
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+
+  // Horizontal stacked bar
+  const barCtx = document.getElementById('stackChart');
+  const stack = new Chart(barCtx, {
+    type: 'bar',
+    data: {
+      labels: initData.stack.labels || [],
+      datasets: [
+        { label: 'Open',   data: initData.stack.open   || [], borderWidth: 1 },
+        { label: 'Closed', data: initData.stack.closed || [], borderWidth: 1 }
+      ]
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { stacked: true, beginAtZero: true, ticks: { precision: 0 } },
+        y: { stacked: true }
+      }
+    }
+  });
+
+  // KPI + 表格渲染
+  function renderKPI(k){
+    document.getElementById('kpiTotal').textContent = k.total ?? 0;
+    document.getElementById('kpiCats').textContent = k.categories ?? 0;
+    const top = k.top || {};
+    document.getElementById('kpiTop').textContent = top.label ? `${top.label}（${(top.pct ?? 0).toFixed(1)}%）` : '-';
+    document.getElementById('kpiClosedPct').textContent = ((k.closed_pct ?? 0).toFixed(1)) + '%';
+  }
+  function renderRows(rows){
+    const tb = document.getElementById('rowsBody'); tb.innerHTML = '';
+    if(!rows || !rows.length){
+      tb.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">無資料</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="text-trunc">${r.type_name??'未分類'}</td>
+        <td class="text-end">${r.count??0}</td>
+        <td class="text-end">${(r.percent??0).toFixed(2)}%</td>
+        <td class="text-end">${r.open??0}</td>
+        <td class="text-end">${r.closed??0}</td>
+      `;
+      tb.appendChild(tr);
+    });
+  }
+
+  renderKPI(initData.kpi || {});
+  renderRows(initData.rows || []);
+
+  // 篩選 AJAX
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form)).toString();
+    fetch(`{{ url_for('reports_ticket.project_category_data') }}?` + qs, {credentials:'same-origin'})
+      .then(r=>r.json())
+      .then(data=>{
+        // pie
+        pie.data.labels = data.pie?.labels || [];
+        pie.data.datasets[0].data = data.pie?.counts || [];
+        pie.data.datasets[0].backgroundColor = data.pie?.palette || [];
+        pie.update();
+
+        // stack
+        stack.data.labels = data.stack?.labels || [];
+        stack.data.datasets[0].data = data.stack?.open || [];
+        stack.data.datasets[1].data = data.stack?.closed || [];
+        stack.update();
+
+        // KPI / rows
+        renderKPI(data.kpi || {});
+        renderRows(data.rows || []);
+      })
+      .catch(console.error);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,233 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'projects' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'project_progress' %}
+{% block title %}報表管理｜專案進度追蹤{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 18px rgba(15,23,42,.06); border-radius:14px; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; flex-direction:column; gap:4px; padding:12px 16px; border-radius:12px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.06); }
+  .kpi .label{ color:#64748b; font-size:.9rem; }
+  .kpi .value{ font-size:1.4rem; font-weight:800; }
+  .table thead th{ white-space:nowrap; }
+  .text-trunc{ max-width:360px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">專案進度追蹤</h2>
+  </div>
+
+  <!-- 篩選列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.project_progress_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">專案</label>
+      <select class="form-select" name="project_sid" id="projectSid" required>
+        {% if not projects or projects|length == 0 %}
+          <option value="">（尚無專案）</option>
+        {% endif %}
+        {% for p in projects %}
+          <option value="{{ p.project_sid }}" {% if (params.project_sid|string) == (p.project_sid|string) %}selected{% endif %}>
+            {{ p.project_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">區間</label>
+      <select class="form-select" name="interval" id="interval">
+        <option value="day" {% if params.interval=='day' %}selected{% endif %}>日</option>
+        <option value="week" {% if params.interval=='week' %}selected{% endif %}>週</option>
+        <option value="month" {% if params.interval=='month' %}selected{% endif %}>月</option>
+      </select>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.project_progress_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <!-- KPI -->
+  <div class="row g-3 mb-2">
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">區間新增</div><div id="kpiCreated" class="value">{{ chart_data.kpi.created }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">區間完成</div><div id="kpiClosed" class="value">{{ chart_data.kpi.closed }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">期初待辦</div><div id="kpiBacklogStart" class="value">{{ chart_data.kpi.backlog_start }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">期末待辦</div><div id="kpiBacklogEnd" class="value">{{ chart_data.kpi.backlog_end }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">目前未結</div><div id="kpiOpenNow" class="value">{{ chart_data.kpi.open_now }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">整體進度</div><div id="kpiProgress" class="value">{{ '%.1f'|format(chart_data.kpi.progress_pct) }}%</div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <!-- 進度圖 -->
+    <div class="col-12">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">進度趨勢（新增/完成/待辦）</h5>
+        <canvas id="chartProgress" style="max-height:420px"></canvas>
+      </div>
+    </div>
+
+    <!-- 未結 TOP 20 / 已結最新 20 -->
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">目前未結（最久未結 TOP 20）</h5>
+        <div class="table-responsive">
+          <table class="table mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>No</th><th style="min-width:260px;">標題</th><th>建立時間</th><th class="text-end">已等待（h）</th>
+              </tr>
+            </thead>
+            <tbody id="openBody">
+              {% for r in chart_data.open_items %}
+              <tr>
+                <td>{{ r.ticket_no }}</td>
+                <td class="text-trunc">{{ r.ticket_name }}</td>
+                <td>{{ r.created_at }}</td>
+                <td class="text-end">{{ '%.1f'|format(r.age_hours) }}</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.open_items|length == 0 %}
+              <tr><td colspan="4" class="text-center text-muted py-3">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">區間內已完成（最新 20 筆）</h5>
+        <div class="table-responsive">
+          <table class="table mb-0 align-middle">
+            <thead>
+              <tr>
+                <th>No</th><th style="min-width:260px;">標題</th><th>建立</th><th>完成</th><th class="text-end">耗時（h）</th>
+              </tr>
+            </thead>
+            <tbody id="closedBody">
+              {% for r in chart_data.closed_items %}
+              <tr>
+                <td>{{ r.ticket_no }}</td>
+                <td class="text-trunc">{{ r.ticket_name }}</td>
+                <td>{{ r.created_at }}</td>
+                <td>{{ r.closed_at }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.lead_hours) }}</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.closed_items|length == 0 %}
+              <tr><td colspan="5" class="text-center text-muted py-3">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const initData = {{ chart_data|tojson }};
+  const ctx = document.getElementById('chartProgress');
+
+  // Combo：新增/完成（stacked bar）＋ Backlog（line）
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: initData.labels,
+      datasets: [
+        { label: '新增', data: (initData.series[0]?.data)||[], backgroundColor: 'rgba(59,130,246,.35)', borderColor: '#3b82f6', borderWidth: 1, stack: 'flow' },
+        { label: '完成', data: (initData.series[1]?.data)||[], backgroundColor: 'rgba(34,197,94,.35)', borderColor: '#22c55e', borderWidth: 1, stack: 'flow' },
+        { type: 'line', label: '待辦(Backlog)', data: (initData.series[2]?.data)||[], borderColor: '#ef4444', borderWidth: 2, pointRadius: 2, fill: false, yAxisID: 'y' }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        x: { stacked: true },
+        y: { beginAtZero: true, stacked: false, ticks: { precision: 0 } }
+      }
+    }
+  });
+
+  // KPI render
+  function renderKPI(k){
+    document.getElementById('kpiCreated').textContent = k.created ?? 0;
+    document.getElementById('kpiClosed').textContent = k.closed ?? 0;
+    document.getElementById('kpiBacklogStart').textContent = k.backlog_start ?? 0;
+    document.getElementById('kpiBacklogEnd').textContent = k.backlog_end ?? 0;
+    document.getElementById('kpiOpenNow').textContent = k.open_now ?? 0;
+    document.getElementById('kpiProgress').textContent = (k.progress_pct ?? 0).toFixed(1) + '%';
+  }
+
+  // Table render helpers
+  function renderOpen(rows){
+    const tb = document.getElementById('openBody'); tb.innerHTML = '';
+    if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3">無資料</td></tr>'; return; }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.ticket_no??''}</td>
+                      <td class="text-trunc">${r.ticket_name??''}</td>
+                      <td>${r.created_at??''}</td>
+                      <td class="text-end">${(r.age_hours??0).toFixed(1)}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+  function renderClosed(rows){
+    const tb = document.getElementById('closedBody'); tb.innerHTML = '';
+    if(!rows || !rows.length){ tb.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">無資料</td></tr>'; return; }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${r.ticket_no??''}</td>
+                      <td class="text-trunc">${r.ticket_name??''}</td>
+                      <td>${r.created_at??''}</td>
+                      <td>${r.closed_at??''}</td>
+                      <td class="text-end">${(r.lead_hours??0).toFixed(2)}</td>`;
+      tb.appendChild(tr);
+    });
+  }
+
+  // 初始化 KPI/表格
+  renderKPI(initData.kpi);
+  renderOpen(initData.open_items || []);
+  renderClosed(initData.closed_items || []);
+
+  // 篩選 AJAX
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form)).toString();
+    fetch(`{{ url_for('reports_ticket.project_progress_data') }}?` + qs, {credentials:'same-origin'})
+      .then(r=>r.json())
+      .then(data=>{
+        chart.data.labels = data.labels || [];
+        chart.data.datasets[0].data = (data.series?.[0]?.data)||[];
+        chart.data.datasets[1].data = (data.series?.[1]?.data)||[];
+        chart.data.datasets[2].data = (data.series?.[2]?.data)||[];
+        chart.update();
+
+        renderKPI(data.kpi||{});
+        renderOpen(data.open_items||[]);
+        renderClosed(data.closed_items||[]);
+      })
+      .catch(console.error);
+  });
+})();
+</script>
+{% endblock %}

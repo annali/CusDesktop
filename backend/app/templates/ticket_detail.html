@@ -1,0 +1,283 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}客服單詳情{% endblock %}
+
+{% block content %}
+{% set active_tab = request.args.get('tab') or 'replies' %}
+<style>
+  .card-clean{border:0; box-shadow:0 6px 20px rgba(15,23,42,.06); border-radius:14px;}
+  .kv{display:flex; justify-content:space-between; padding:.5rem 0; border-bottom:1px dashed #eef2f7;}
+  .kv:last-child{border-bottom:0;}
+  .kv .k{color:#64748b;}
+  .kv .v{color:#0f172a;}
+  .mini{font-size:.875rem; color:#64748b;}
+  .badge.status{font-weight:700;}
+  .tabs-head{background:#fff; border:1px solid #eef2f7; border-radius:.75rem; padding:.35rem; display:flex; gap:.35rem;}
+  .tabs-head .nav-link{border:0; border-radius:.65rem; padding:.5rem .9rem; color:#314a57;}
+  .tabs-head .nav-link.active{background:var(--main-color); color:#fff; font-weight:700; box-shadow:0 4px 12px rgba(82,117,134,.18);}
+
+  .reply-card{ border:1px solid #e9edf2; border-radius:14px; background:#fbfdff; }
+  .reply-editor{ padding:1rem 1rem .5rem; }
+  .reply-editor .form-control{ height:140px; resize:vertical; border:1px solid #dbe3ea; border-radius:12px; padding:.85rem 1rem; }
+  .reply-actions{ display:flex; justify-content:flex-end; padding:.5rem 0 1rem; }
+  .btn-send{ padding:.35rem .7rem; font-size:.875rem; }
+  .btn-send[disabled]{ background:#cbd5e1!important; border-color:#cbd5e1!important; }
+  .reply-feed{ padding: .5rem 1rem 1.25rem; }
+  .feed-item{ position:relative; padding:1rem 1rem 1rem 2.25rem; border-left:3px solid #eef2f7; }
+  .feed-item+.feed-item{ margin-top:.75rem; }
+  .feed-item .dot{ position:absolute; left:-6px; top:1.25rem; width:14px; height:14px; border-radius:50%; background:#fff; border:3px solid (var(--main-color)); }
+  .feed-head{ display:flex; justify-content:space-between; align-items:center; }
+  .feed-name{ font-weight:700; color:#0f172a; display:flex; gap:.5rem; align-items:center; }
+  .feed-date{ color:#94a3b8; font-size:.9rem; display:flex; gap:.35rem; align-items:center; }
+  .feed-body{ margin-top:.35rem; color:#1f2937; line-height:1.7; }
+
+  .page-head{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:1rem; }
+  .page-head .left{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .action-bar{ display:flex; gap:8px; }
+  .btn-action{ display:inline-flex; align-items:center; gap:.45rem; padding:.5rem .85rem; border-radius:12px; font-weight:700; letter-spacing:.2px; }
+  .title-actions{ display:flex; gap:.5rem; align-items:center; }
+
+  /* 附件樣式（比照案件明細） */
+  .files-section .section-title{font-weight:700; color:#0f172a;}
+  .file-toolbar .input-group-text{cursor:pointer;}
+  .table-files td,.table-files th{vertical-align:middle;}
+  .table-files .btn{padding:.2rem .5rem;}
+</style>
+
+<!-- 頂部：左側返回/單號資訊 ｜ 右側 action-bar（結案按鈕） -->
+<div class="page-head">
+  <div class="left">
+    {% if request.args.get('from_project') %}
+      <a href="{{ url_for('project.project_detail', project_sid=request.args.get('from_project')) }}" class="btn btn-light btn-sm">
+        <i class="bi bi-chevron-left"></i> 返回專案明細
+      </a>
+    {% else %}
+      <a href="{{ url_for('ticket.ticket_list') }}" class="btn btn-light btn-sm">
+        <i class="bi bi-chevron-left"></i> 返回列表
+      </a>
+    {% endif %}
+    <div class="mini">單號 <span class="fw-semibold">{{ t.ticket_no }}</span> ｜ 建立於 {{ received_at }}</div>
+  </div>
+
+  <div class="action-bar">
+    {% if t.ticket_status != 'closed' %}
+      <form id="closeTicketForm"
+            method="post"
+            action="{{ url_for('ticket.close_ticket', ticket_sid=t.ticket_sid, from_project=request.args.get('from_project')) }}">
+        <button type="submit" class="btn btn-outline-success btn-action" id="btnCloseTicket">
+          <i class="bi bi-check2-circle"></i> 結案
+        </button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card card-clean p-3 mb-3">
+      <div class="d-flex justify-content-between align-items-center">
+        <h4 class="mb-0 fw-bold">{{ t.ticket_name }}</h4>
+        <div class="title-actions">
+          {% set badge_map = {'open':'warning','received':'primary','replied':'success','closed':'secondary'} %}
+          <span class="badge status bg-{{ badge_map.get(t.ticket_status, 'light') }} {% if badge_map.get(t.ticket_status) in ['warning','light'] %}text-dark{% endif %}">
+            {{ t.ticket_status }}
+          </span>
+        </div>
+      </div>
+      <div class="mini mt-1">類別：{{ type_name }} </div>
+      {% if t.ticket_description %}
+        <div class="mt-3">{{ t.ticket_description }}</div>
+      {% endif %}
+    </div>
+
+    <ul class="nav tabs-head" id="ticketTabs" role="tablist">
+      <li class="nav-item"><button class="nav-link {{ 'active' if active_tab=='replies' else '' }}" id="tab-replies" data-bs-toggle="tab" data-bs-target="#pane-replies" type="button">回覆紀錄（{{ comments|length }}）</button></li>
+      <li class="nav-item"><button class="nav-link {{ 'active' if active_tab=='files' else '' }}" id="tab-files" data-bs-toggle="tab" data-bs-target="#pane-files" type="button">附件（{{ attachments|length }}）</button></li>
+      <li class="nav-item"><button class="nav-link {{ 'active' if active_tab=='logs' else '' }}" id="tab-logs" data-bs-toggle="tab" data-bs-target="#pane-logs" type="button">歷程（{{ logs|length }}）</button></li>
+      <li class="nav-item"><button class="nav-link {{ 'active' if active_tab=='info' else '' }}" id="tab-info" data-bs-toggle="tab" data-bs-target="#pane-info" type="button">基本資訊</button></li>
+    </ul>
+
+    <div class="tab-content py-3">
+      <!-- 回覆 -->
+      <div class="tab-pane fade {{ 'show active' if active_tab=='replies' else '' }}" id="pane-replies" role="tabpanel" aria-labelledby="tab-replies">
+        <div class="reply-card">
+          <div class="reply-editor">
+            <form id="replyForm"
+                  method="post"
+                  action="{{ url_for('ticket.add_comment', ticket_sid=t.ticket_sid, from_project=request.args.get('from_project')) }}">
+              <textarea id="replyContent" name="content" class="form-control" placeholder="輸入您的回覆…" required></textarea>
+              <div class="reply-actions">
+                <button id="btnSend" type="submit" class="btn btn-primary btn-send" disabled>
+                  <i class="bi bi-send"></i> 送出
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="reply-feed">
+            {% for c in comments %}
+              <div class="feed-item">
+                <span class="dot"></span>
+                <div class="feed-head">
+                  <div class="feed-name"><i class="bi bi-person"></i>{{ c.author_name or c.author_sid }}</div>
+                  <div class="feed-date"><i class="bi bi-clock"></i>{{ c.create_dt.strftime('%Y/%m/%d %H:%M') }}</div>
+                </div>
+                <div class="feed-body">{{ c.content }}</div>
+              </div>
+            {% else %}
+              <div class="text-muted px-3 py-2">尚無回覆</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- 附件（可上傳 / 下載 / 刪除） -->
+      <div class="tab-pane fade {{ 'show active' if active_tab=='files' else '' }}" id="pane-files" role="tabpanel" aria-labelledby="tab-files">
+        <div class="card card-clean files-section">
+          <div class="card-body">
+            <div class="section-title mb-2">文件</div>
+
+            <!-- 上傳工具列 -->
+            <form id="uploadForm" class="file-toolbar mb-3" method="post" enctype="multipart/form-data"
+                  action="{{ url_for('ticket.upload_attachment', ticket_sid=t.ticket_sid, tab='files', _anchor='pane-files') }}">
+              <div class="input-group">
+                <label class="input-group-text btn btn-outline-secondary mb-0" for="fileInput">
+                  <i class="bi bi-folder2-open me-1"></i> 選擇檔案
+                </label>
+                <input id="fileInput" class="d-none" type="file" name="file" required>
+                <input id="fileNames" class="form-control" type="text" value="" placeholder="未選擇任何檔案" readonly>
+                <button id="btnUpload" class="btn btn-primary" type="submit">
+                  <i class="bi bi-upload"></i> 上傳
+                </button>
+              </div>
+              <div class="form-text mt-1">可一次選擇單一檔案；實際上限依伺服器設定。</div>
+            </form>
+
+            <!-- 檔案清單 -->
+            <div class="table-responsive">
+              <table class="table table-files align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>檔名</th>
+                    <th style="width:120px;">大小</th>
+                    <th style="width:180px;">建立時間</th>
+                    <th style="width:160px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for a in attachments %}
+                    <tr>
+                      <td class="text-truncate"><i class="bi bi-paperclip me-2"></i>{{ a.attachment_name }}</td>
+                      <td>{{ a.attachment_size }}</td>
+                      <td class="text-nowrap">{{ a.create_dt.strftime('%Y/%m/%d %H:%M') if a.create_dt else '' }}</td>
+                      <td class="text-nowrap">
+                        <a class="btn btn-sm btn-outline-secondary"
+                           href="{{ url_for('ticket.download_attachment', attach_id=a.attachmen_sid) }}">
+                          <i class="bi bi-download"></i> 下載
+                        </a>
+                        <form class="d-inline" method="post"
+                              action="{{ url_for('ticket.delete_attachment', attach_id=a.attachmen_sid) }}"
+                              onsubmit="return confirm('確定要刪除此檔案嗎？');">
+                          <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i> 刪除
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% else %}
+                    <tr><td colspan="4" class="text-center text-muted py-4">尚無附件</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 歷程 -->
+      <div class="tab-pane fade {{ 'show active' if active_tab=='logs' else '' }}" id="pane-logs" role="tabpanel" aria-labelledby="tab-logs">
+        <div class="card card-clean"><div class="card-body">
+          {% if logs %}
+            <ul class="list-group list-group-flush">
+              {% for lg in logs %}
+                <li class="list-group-item">
+                  <div class="d-flex justify-content-between">
+                    <div>
+                      <span class="badge bg-light text-dark border me-2">{{ lg.action }}</span>
+                      {{ lg.message }}
+                      {% if lg.field_name %}<span class="text-muted">（{{ lg.field_name }}: {{ lg.old_value }} → {{ lg.new_value }}）</span>{% endif %}
+                    </div>
+                    <div class="text-muted">{{ lg.create_dt.strftime('%Y/%m/%d %H:%M') }}</div>
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="text-muted">尚無歷程</div>
+          {% endif %}
+        </div></div>
+      </div>
+
+      <!-- 基本資訊 -->
+      <div class="tab-pane fade {{ 'show active' if active_tab=='info' else '' }}" id="pane-info" role="tabpanel" aria-labelledby="tab-info">
+        <div class="card card-clean"><div class="card-body">
+          <div class="kv"><div class="k">客服單號</div><div class="v">{{ t.ticket_no }}</div></div>
+          <div class="kv"><div class="k">標題</div><div class="v">{{ t.ticket_name }}</div></div>
+          <div class="kv"><div class="k">狀態</div><div class="v">{{ t.ticket_status }}</div></div>
+          <div class="kv"><div class="k">類別</div><div class="v">{{ type_name }}</div></div>
+          <div class="kv"><div class="k">建立人</div><div class="v">{{ created_by }}</div></div>
+          <div class="kv"><div class="k">建立時間</div><div class="v">{{ received_at }}</div></div>
+          <div class="kv"><div class="k">所屬專案</div><div class="v">{{ project.project_name if project else '—' }}</div></div>
+          <div class="kv"><div class="k">關聯案件</div><div class="v">{{ case_no }}</div></div>
+          <div class="kv"><div class="k">到期時間</div><div class="v">{{ case_due }}</div></div>
+        </div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 右側摘要 -->
+  <div class="col-lg-4">
+    <div class="card card-clean p-3">
+      <div class="fw-bold mb-2">摘要</div>
+      <div class="kv"><div class="k">專案</div><div class="v">{{ project.project_name if project else '—' }}</div></div>
+      <div class="kv"><div class="k">案件編號</div><div class="v">{{ case_no }}</div></div>
+      <div class="kv"><div class="k">派工名稱</div><div class="v">{{ dispatch_name }}</div></div>
+      <div class="kv"><div class="k">派工狀態</div><div class="v">{{ dispatch_status }}</div></div>
+      <div class="kv"><div class="k">派工時間</div><div class="v">{{ dispatch_when }}</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // 回覆區啟用/禁用送出
+  const ta=document.getElementById('replyContent'); const btn=document.getElementById('btnSend'); const frm=document.getElementById('replyForm');
+  function toggle(){ if(btn && ta) btn.disabled = !(ta.value.trim().length>0); }
+  ta?.addEventListener('input', toggle); toggle();
+  ta?.addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!btn.disabled) frm.submit(); });
+  frm?.addEventListener('submit', e=>{ if(!ta.value.trim()){ e.preventDefault(); toggle(); }});
+
+  // 結案確認
+  const closeForm = document.getElementById('closeTicketForm');
+  closeForm?.addEventListener('submit', function(e){
+    if(!confirm('確認將此客服單結案？')) {
+      e.preventDefault();
+      return false;
+    }
+  });
+
+  // 附件：顯示選取檔名
+  const fileInput = document.getElementById('fileInput');
+  const fileNames = document.getElementById('fileNames');
+  document.getElementById('uploadForm')?.addEventListener('submit', (e)=>{
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0){
+      e.preventDefault(); alert('請選擇要上傳的檔案');
+    }
+  });
+  fileInput?.addEventListener('change', ()=>{
+    const f = fileInput.files && fileInput.files[0];
+    fileNames.value = f ? f.name : '';
+    if(!f) fileNames.placeholder = '未選擇任何檔案';
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,232 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'projects' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'projects_overview' %}
+{% block title %}報表管理｜專案總覽{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 18px rgba(15,23,42,.06); border-radius:14px; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; flex-direction:column; gap:4px; padding:12px 16px; border-radius:12px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.06); }
+  .kpi .label{ color:#64748b; font-size:.9rem; }
+  .kpi .value{ font-size:1.4rem; font-weight:800; }
+  .table thead th{ white-space:nowrap; }
+  .text-trunc{ max-width:320px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">專案總覽</h2>
+  </div>
+
+  <!-- 篩選列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.projects_overview_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">專案狀態</label>
+      <select class="form-select" name="status" id="status">
+        <option value="">全部</option>
+        {% for s in status_options %}
+          <option value="{{ s }}" {% if params.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">關鍵字</label>
+      <input type="text" class="form-control" name="kw" id="kw" value="{{ params.kw }}" placeholder="專案名稱或編號">
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.projects_overview_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <!-- KPI -->
+  <div class="row g-3 mb-2">
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">專案數</div><div id="kpiProj" class="value">{{ chart_data.kpi.projects }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">目前未結 Ticket</div><div id="kpiOpenNow" class="value">{{ chart_data.kpi.open_now }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">區間新增</div><div id="kpiCreated" class="value">{{ chart_data.kpi.created }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">區間完成</div><div id="kpiClosed" class="value">{{ chart_data.kpi.closed }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">平均解決時間</div><div id="kpiAvg" class="value">{{ '%.2f'|format(chart_data.kpi.avg_rt_hours) }} 小時</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">P90 解決時間</div><div id="kpiP90" class="value">{{ '%.2f'|format(chart_data.kpi.p90_rt_hours) }} 小時</div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <!-- Top10 長條圖 -->
+    <div class="col-12 col-lg-7">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">Top 10 未結 Ticket（依目前未結數排序）</h5>
+        <canvas id="barTop" style="max-height:380px"></canvas>
+      </div>
+    </div>
+    <!-- 專案狀態分布 -->
+    <div class="col-12 col-lg-5">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">專案狀態分布</h5>
+        <canvas id="pieStatus" style="max-height:380px"></canvas>
+      </div>
+    </div>
+
+    <!-- 明細表 -->
+    <div class="col-12">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">專案明細</h5>
+        <div class="table-responsive">
+          <table id="projTable" class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>專案編號</th>
+                <th style="min-width:260px">專案名稱</th>
+                <th>狀態</th>
+                <th>起日</th>
+                <th>迄日</th>
+                <th class="text-end">區間新增</th>
+                <th class="text-end">區間完成</th>
+                <th class="text-end">目前未結</th>
+                <th class="text-end">平均（h）</th>
+                <th class="text-end">P90（h）</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in chart_data.rows %}
+              <tr>
+                <td>{{ r.project_no }}</td>
+                <td class="text-trunc">{{ r.project_name }}</td>
+                <td>{{ r.project_status }}</td>
+                <td>{{ r.start_dt }}</td>
+                <td>{{ r.end_dt }}</td>
+                <td class="text-end">{{ r.created }}</td>
+                <td class="text-end">{{ r.closed }}</td>
+                <td class="text-end">{{ r.open_now }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.avg_rt_hours) }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.p90_rt_hours) }}</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.rows|length == 0 %}
+              <tr><td colspan="10" class="text-center text-muted py-4">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const initData = {{ chart_data|tojson }};
+
+  // Top10 柱狀（群組）
+  const ctxBar = document.getElementById('barTop');
+  const bar = new Chart(ctxBar, {
+    type: 'bar',
+    data: {
+      labels: initData.bar.labels,
+      datasets: [
+        { label: '未結', data: initData.bar.open_now, backgroundColor: 'rgba(239,68,68,.35)', borderColor: '#ef4444', borderWidth: 1 },
+        { label: '完成(區間)', data: initData.bar.closed, backgroundColor: 'rgba(34,197,94,.30)', borderColor: '#22c55e', borderWidth: 1 },
+        { label: '新增(區間)', data: initData.bar.created, backgroundColor: 'rgba(59,130,246,.30)', borderColor: '#3b82f6', borderWidth: 1 },
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+
+  // Pie 專案狀態
+  const ctxPie = document.getElementById('pieStatus');
+  const pie = new Chart(ctxPie, {
+    type: 'doughnut',
+    data: {
+      labels: initData.status_dist.labels,
+      datasets: [{
+        data: initData.status_dist.counts,
+        backgroundColor: initData.status_dist.palette,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } }
+    }
+  });
+
+  // KPI 渲染
+  function renderKPI(k){
+    document.getElementById('kpiProj').textContent = k.projects;
+    document.getElementById('kpiOpenNow').textContent = k.open_now;
+    document.getElementById('kpiCreated').textContent = k.created;
+    document.getElementById('kpiClosed').textContent = k.closed;
+    document.getElementById('kpiAvg').textContent = (k.avg_rt_hours||0).toFixed(2) + ' 小時';
+    document.getElementById('kpiP90').textContent = (k.p90_rt_hours||0).toFixed(2) + ' 小時';
+  }
+
+  // 表格渲染
+  function renderTable(rows){
+    const tbody = document.querySelector('#projTable tbody');
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">無資料</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.project_no ?? ''}</td>
+        <td class="text-trunc">${r.project_name ?? ''}</td>
+        <td>${r.project_status ?? ''}</td>
+        <td>${r.start_dt ?? ''}</td>
+        <td>${r.end_dt ?? ''}</td>
+        <td class="text-end">${r.created ?? 0}</td>
+        <td class="text-end">${r.closed ?? 0}</td>
+        <td class="text-end">${r.open_now ?? 0}</td>
+        <td class="text-end">${(r.avg_rt_hours||0).toFixed(2)}</td>
+        <td class="text-end">${(r.p90_rt_hours||0).toFixed(2)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // 篩選 AJAX
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form));
+    fetch(`{{ url_for('reports_ticket.projects_overview_data') }}?` + qs.toString(), {credentials:'same-origin'})
+      .then(r=>r.json())
+      .then(data=>{
+        // 更新圖
+        bar.data.labels = data.bar.labels;
+        bar.data.datasets[0].data = data.bar.open_now;
+        bar.data.datasets[1].data = data.bar.closed;
+        bar.data.datasets[2].data = data.bar.created;
+        bar.update();
+
+        pie.data.labels = data.status_dist.labels;
+        pie.data.datasets[0].data = data.status_dist.counts;
+        pie.data.datasets[0].backgroundColor = data.status_dist.palette;
+        pie.update();
+
+        // KPI & 表
+        renderKPI(data.kpi);
+        renderTable(data.rows);
+      })
+      .catch(console.error);
+  });
+})();
+</script>
+{% endblock %}

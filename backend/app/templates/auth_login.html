@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>登入｜客服中心</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <style>
+    :root{
+      --main-color:#527586;
+      --main-color-2:#406172;
+      --text-strong:#0f172a;
+    }
+    html,body{height:100%;}
+    body{
+      background:
+        radial-gradient(1200px 600px at -10% -10%, #dbeafe 0, transparent 60%),
+        radial-gradient(900px 600px at 110% 10%, #e9d5ff 0, transparent 55%),
+        radial-gradient(800px 500px at 50% 120%, #d1fae5 0, transparent 55%),
+        #f6f9fc;
+      display:flex; align-items:center; justify-content:center;
+      font-size:14px; color:#334155;
+    }
+    .blob{position:absolute; z-index:0; filter:blur(40px); opacity:.45; animation: float 14s ease-in-out infinite;}
+    .blob.b1{ width:380px;height:380px; background:#c7d2fe; top:4%; left:6%; animation-delay:-2s; }
+    .blob.b2{ width:320px;height:320px; background:#d8b4fe; bottom:6%; right:8%; animation-delay:-4s; }
+    @keyframes float{ 0%,100%{transform:translateY(0)} 50%{transform:translateY(-18px)} }
+
+    .auth-card{
+      position:relative; z-index:1;
+      width:min(92vw, 560px);
+      border-radius:20px;
+      background:rgba(255,255,255,.86);
+      backdrop-filter:saturate(140%) blur(6px);
+      box-shadow:0 20px 60px rgba(15,23,42,.12), inset 0 1px 0 rgba(255,255,255,.4);
+      overflow:hidden;
+    }
+    .auth-head{
+      padding:22px 26px 14px; display:flex; align-items:center; gap:12px;
+      border-bottom:1px solid rgba(148,163,184,.18);
+      background:linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.6));
+    }
+    .brand-badge{
+      width:44px;height:44px;border-radius:14px; flex:0 0 44px;
+      display:flex; align-items:center; justify-content:center;
+      background:var(--main-color); color:#fff; font-weight:800; letter-spacing:.03em;
+      box-shadow:0 10px 26px rgba(82,117,134,.35);
+    }
+    .auth-title{ font-size:20px; font-weight:800; color:var(--text-strong); letter-spacing:.2px; }
+    .auth-sub{ color:#6b7280; }
+    .auth-body{ padding:22px 26px 10px; }
+
+    .form-control{
+      border-radius:12px; padding:.72rem .9rem; border:1px solid #dbe3ea; transition:all .15s ease; background:#fff;
+    }
+    .form-control:focus{ border-color:var(--main-color); box-shadow:0 0 0 .15rem rgba(82,117,134,.16); }
+
+    .btn-primary{ background:var(--main-color); border-color:var(--main-color); font-weight:700;
+      border-radius:12px; padding:.7rem 1rem; }
+    .btn-primary:hover{ background:var(--main-color-2); border-color:var(--main-color-2); }
+
+    /* 密碼眼睛：加大並微微下移置中 */
+    .toggle-eye {
+      position: absolute;
+      right: 12px;
+      top: 72%;                /* 調整到 72%，使視覺看起來居中 */
+      transform: translateY(-50%);
+      border: 0;
+      background: transparent;
+      color: #7c8a95;
+      padding: 4px;
+      font-size: 1.45rem;      /* 放大一點 */
+      cursor: pointer;
+      line-height: 1;
+    }
+
+    .alert-lite{ border-radius:12px; border:1px solid #fee2e2; background:#fff1f2; color:#7f1d1d; padding:.65rem .8rem; }
+
+    .foot{ padding:10px 20px 18px; text-align:center; color:#94a3b8; font-size:12px; border-top:1px solid rgba(148,163,184,.18); }
+    .form-hint{ color:#6b7280; }
+    .link{ color:var(--main-color); text-decoration:none; }
+    .link:hover{ color:var(--main-color-2); text-decoration:underline; }
+
+    @media (max-width: 575.98px){ .auth-head{padding:18px 18px 10px;} .auth-body{padding:18px;} }
+  </style>
+</head>
+<body>
+  <div class="blob b1"></div>
+  <div class="blob b2"></div>
+
+  <div class="auth-card">
+    <div class="auth-head">
+      <div class="brand-badge">客</div>
+      <div>
+        <div class="auth-title">登入</div>
+        <div class="auth-sub">請輸入帳密以繼續</div>
+      </div>
+    </div>
+
+    <div class="auth-body">
+      {% with msgs=get_flashed_messages(with_categories=true) %}
+      {% if msgs %}
+        {% for cat, msg in msgs %}
+          <div class="alert-lite mb-3"><i class="bi bi-exclamation-triangle me-1"></i>{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('auth.login') }}" novalidate>
+        {{ form.csrf_token() if form is defined }}
+
+        <div class="mb-3">
+          <label class="form-label">帳號</label>
+          <input type="text" class="form-control" name="login_account" placeholder="輸入您的帳號" required>
+        </div>
+
+        <div class="mb-2 position-relative">
+          <label class="form-label">密碼</label>
+          <input id="pwd" type="password" class="form-control" name="password" placeholder="輸入密碼" required>
+          <button class="toggle-eye" type="button" aria-label="顯示/隱藏密碼">
+            <i id="eye" class="bi bi-eye"></i>
+          </button>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="remember" name="remember" value="1">
+            <label class="form-check-label" for="remember">記住我</label>
+          </div>
+          <a class="link" href="#" onclick="alert('請洽系統管理員重置密碼');return false;">忘記密碼？</a>
+        </div>
+
+        <button class="btn btn-primary w-100" type="submit">
+          <i class="bi bi-box-arrow-in-right me-1"></i> 登入
+        </button>
+
+<!--        <div class="text-center mt-3">-->
+<!--          <span class="form-hint">還沒有帳號？</span>-->
+<!--          &lt;!&ndash; 直接導向：避免沒傳參數時變成 # &ndash;&gt;-->
+<!--          <a class="link ms-1" href="{{ url_for('auth.register') }}">前往註冊</a>-->
+<!--        </div>-->
+      </form>
+    </div>
+
+    <div class="foot"><i class="bi bi-c-circle me-1"></i> 拓雲資科客服中心</div>
+  </div>
+
+  <script>
+    (function(){
+      const pwd = document.getElementById('pwd');
+      const eye = document.getElementById('eye');
+      document.querySelector('.toggle-eye')?.addEventListener('click', ()=>{
+        const show = pwd.type === 'password';
+        pwd.type = show ? 'text' : 'password';
+        eye.className = show ? 'bi bi-eye-slash' : 'bi bi-eye';
+      });
+    })();
+  </script>
+</body>
+</html>

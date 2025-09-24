@@ -1,0 +1,228 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}儀表板{% endblock %}
+
+{% block content %}
+<style>
+  .cardx{border:0;border-radius:16px;box-shadow:0 8px 24px rgba(15,23,42,.08);background:#fff;}
+  .kpi{display:flex;align-items:center;justify-content:space-between;padding:18px;border-radius:16px}
+  .kpi .num{font-size:42px;font-weight:800;line-height:1}
+  .kpi .tag{display:inline-block;margin-top:8px;font-size:12px;border:1px solid rgba(0,0,0,.06);border-radius:999px;padding:4px 10px;background:#fff}
+  .kpi i{opacity:.9}
+
+  /* —— KPI 主題色 —— */
+  .kpi-blue{
+    background: linear-gradient(135deg,#eaf2ff 0%,#eef5ff 55%,#e7f0ff 100%);
+    box-shadow: 0 10px 28px rgba(59,130,246,.15);
+  }
+  .kpi-blue i{ color:#3b82f6; }
+
+  .kpi-yellow{
+    background: linear-gradient(135deg,#fff8e6 0%,#fff3cc 55%,#fff1bf 100%);
+    box-shadow: 0 10px 28px rgba(245,158,11,.18);
+  }
+  .kpi-yellow i{ color:#b45309; }
+
+  .kpi-purple{
+    background: linear-gradient(135deg,#f5e8ff 0%,#f1e9ff 55%,#f3e8ff 100%);
+    box-shadow: 0 10px 28px rgba(124,58,237,.18);
+  }
+  .kpi-purple i{ color:#7c3aed; }
+
+  .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .6rem;border-radius:999px;font-weight:700}
+  .pill.yellow{background:#fff7e6;border:1px solid #ffe2a8;color:#b76e00}
+  .pill.green{background:#ecfdf5;border:1px solid #a7f3d0;color:#0f766e}
+  .listy .item{padding:14px 16px;border-radius:12px;border:1px solid #eef2f7;background:#fff;display:flex;align-items:center;justify-content:space-between}
+  .listy .item + .item{margin-top:10px}
+  .small-hint{color:#6b7280}
+
+  /* ========= 圖表尺寸控制 ========= */
+  .chart-box { width:100%; max-width:560px; margin:0 auto; }
+  .chart-box-md { height:260px; }   /* 趨勢 / 時長 */
+  .chart-box-sm { height:240px; }   /* 類型 / 狀態（較小） */
+  .chart-box canvas{width:100%!important;height:100%!important;}
+</style>
+
+<h2 class="fw-bold mb-3">控制台總覽</h2>
+
+<!-- KPI 三卡 -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-4">
+    <div class="kpi kpi-blue">
+      <div>
+        <div class="small-hint">客服單</div>
+        <div class="num">{{ total_tickets }}</div>
+        <div class="tag">累計</div>
+      </div>
+      <i class="bi bi-people fs-3"></i>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="kpi kpi-yellow">
+      <div>
+        <div class="small-hint">處理中客服單</div>
+        <div class="num">{{ processing }}</div>
+        <div class="tag">需要關注</div>
+      </div>
+      <i class="bi bi-clock fs-3"></i>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="kpi kpi-purple">
+      <div>
+        <div class="small-hint">本週完成</div>
+        <div class="num">{{ week_done }}</div>
+        <div class="tag">客服單＋專案</div>
+      </div>
+      <i class="bi bi-check2-circle fs-3"></i>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- 左：最近客服單 -->
+  <div class="col-xl-6">
+    <div class="cardx p-3 h-100">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-activity"></i>
+          <div class="fw-bold fs-5">最近客服單</div>
+        </div>
+      </div>
+
+      <div class="listy">
+        {% for r in recent_tickets %}
+          <div class="item">
+            <div>
+              <div class="fw-semibold">{{ r.ticket_name }}</div>
+              <div class="small-hint">
+                {{ r.creator }} ・ {{ r.ticket_no }}
+              </div>
+            </div>
+            <div>
+              <span class="pill {{ r.status_badge }}">{{ r.status_label }}</span>
+            </div>
+          </div>
+        {% else %}
+          <div class="small-hint">尚無資料</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 右：進行中專案 -->
+  <div class="col-xl-6">
+    <div class="cardx p-3 h-100">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi bi-folder2-open"></i>
+          <div class="fw-bold fs-5">進行中專案</div>
+        </div>
+      </div>
+
+      <div class="listy">
+        {% for p in active_projects %}
+          <div class="item">
+            <div>
+              <div class="fw-semibold">{{ p.project_name }}</div>
+              <div class="small-hint">
+                關聯客服單　處理中：{{ p.processing_cnt }}　已回覆：{{ p.replied_cnt }}
+              </div>
+            </div>
+            <div>
+              {% if p.project_status == '已完成' %}
+                <span class="pill green">已完成</span>
+              {% elif p.project_status == '規劃中' %}
+                <span class="pill yellow">規劃中</span>
+              {% else %}
+                <span class="pill yellow">{{ p.project_status }}</span>
+              {% endif %}
+            </div>
+          </div>
+        {% else %}
+          <div class="small-hint">目前沒有進行中的專案</div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 圖表們 -->
+<div class="row g-3 mt-1">
+  <div class="col-xxl-6">
+    <div class="cardx p-3">
+      <div class="fw-bold fs-5 mb-2"><i class="bi bi-bar-chart"></i> 客服單每日趨勢</div>
+      <div class="small-hint mb-2">最近 7 天客服單數量變化</div>
+      <div class="chart-box chart-box-md">
+        <canvas id="chartTrend"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-xxl-6">
+    <div class="cardx p-3">
+      <div class="fw-bold fs-5 mb-2"><i class="bi bi-activity"></i> 客服單處理時長</div>
+      <div class="small-hint mb-2">每日平均處理時間趨勢（小時）</div>
+      <div class="chart-box chart-box-md">
+        <canvas id="chartDuration"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xxl-6">
+    <div class="cardx p-3">
+      <div class="fw-bold fs-5 mb-2"><i class="bi bi-pie-chart"></i> 問題類型分布</div>
+      <div class="small-hint mb-2">客服單問題類型佔比統計</div>
+      <div class="chart-box chart-box-sm">
+        <canvas id="chartType"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="col-xxl-6">
+    <div class="cardx p-3">
+      <div class="fw-bold fs-5 mb-2"><i class="bi bi-pie-chart-fill"></i> 活躍狀態分布</div>
+      <div class="small-hint mb-2">新建立/已指派/處理中/已回覆/已關閉 等</div>
+      <div class="chart-box chart-box-sm">
+        <canvas id="chartStatus"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(async function () {
+  async function getJSON(url){ const r = await fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}}); return r.json(); }
+  const baseOpts = { responsive: true, maintainAspectRatio: false };
+
+  const t1 = await getJSON("{{ url_for('dash.data_ticket_trend7') }}");
+  new Chart(document.getElementById('chartTrend'), {
+    type: 'bar',
+    data: { labels: t1.data.map(x=>x.date), datasets: [{ label: '客服單數', data: t1.data.map(x=>x.count) }] },
+    options: { ...baseOpts, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks:{precision:0} } } }
+  });
+
+  const t2 = await getJSON("{{ url_for('dash.data_avg_duration7') }}");
+  new Chart(document.getElementById('chartDuration'), {
+    type: 'line',
+    data: { labels: t2.data.map(x=>x.date), datasets: [{ label: '平均時長(小時)', data: t2.data.map(x=>x.hours), tension:.3, fill:false }] },
+    options: { ...baseOpts, scales: { y: { beginAtZero: true } } }
+  });
+
+  const t3 = await getJSON("{{ url_for('dash.data_type_dist') }}");
+  new Chart(document.getElementById('chartType'), {
+    type: 'pie',
+    data: { labels: t3.data.map(x=>x.label), datasets: [{ data: t3.data.map(x=>x.value) }] },
+    options: { ...baseOpts, plugins: { legend: { position: 'bottom' } } }
+  });
+
+  const t4 = await getJSON("{{ url_for('dash.data_status_dist') }}");
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: { labels: t4.data.map(x=>x.label), datasets: [{ data: t4.data.map(x=>x.value) }] },
+    options: { ...baseOpts, cutout: '55%', plugins: { legend: { position: 'bottom' } } }
+  });
+})();
+</script>
+{% endblock %}

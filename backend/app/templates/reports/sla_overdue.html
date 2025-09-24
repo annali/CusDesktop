@@ -1,0 +1,268 @@
+{% extends "dashboard_layout.html" %}
+{% block title %}逾期客服單統計｜客服中心{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <style>
+    .kpi-card .display-6{font-weight:700;}
+    .chart-box{background:#fff;border-radius:.5rem;box-shadow:0 2px 10px rgba(0,0,0,.04);padding:1rem;}
+    .table-fixed{table-layout:fixed;}
+    .table-fixed td,.table-fixed th{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    /* 讓兩顆按鈕等寬且不擠壓 */
+    .form-actions .btn{min-width:0;}
+  </style>
+
+  <div class="d-flex align-items-center mb-3">
+    <h3 class="me-3 mb-0">逾期客服單統計</h3>
+    <span class="badge text-bg-secondary">Reports ▸ SLA</span>
+  </div>
+
+  <!-- 查詢條 -->
+  <form id="filterForm" class="row g-2 align-items-end mb-3">
+    <div class="col-12 col-md-3">
+      <label class="form-label">專案</label>
+      <select class="form-select" name="project_sid">
+        {% for p in projects %}
+          <option value="{{p.project_sid}}" {{ 'selected' if params.project_sid|string == p.project_sid|string else '' }}>
+            [{{p.project_no}}] {{p.project_name}}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-6 col-md-2">
+      <label class="form-label">起日</label>
+      <input type="date" class="form-control" name="date_from" value="{{ params.date_from }}">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label">迄日</label>
+      <input type="date" class="form-control" name="date_to" value="{{ params.date_to }}">
+    </div>
+
+    <div class="col-12 col-md-2">
+      <label class="form-label">區間</label>
+      <select class="form-select" name="interval">
+        <option value="day"   {{ 'selected' if params.interval=='day'   else '' }}>日</option>
+        <option value="week"  {{ 'selected' if params.interval=='week'  else '' }}>週</option>
+        <option value="month" {{ 'selected' if params.interval=='month' else '' }}>月</option>
+      </select>
+    </div>
+
+    <div class="col-6 col-md-1">
+      <label class="form-label">P1(h)</label>
+      <input type="number" min="0" class="form-control" name="p1h" value="{{ params.p1h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P2(h)</label>
+      <input type="number" min="0" class="form-control" name="p2h" value="{{ params.p2h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P3(h)</label>
+      <input type="number" min="0" class="form-control" name="p3h" value="{{ params.p3h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P4(h)</label>
+      <input type="number" min="0" class="form-control" name="p4h" value="{{ params.p4h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">預設(h)</label>
+      <input type="number" min="0" class="form-control" name="defh" value="{{ params.defh }}">
+    </div>
+
+    <div class="col-12 col-md-2">
+      <div class="d-flex gap-2 form-actions">
+        <button type="submit" class="btn btn-primary flex-fill">套用</button>
+        <button type="button" id="resetBtn" class="btn btn-outline-secondary flex-fill">重設</button>
+      </div>
+    </div>
+  </form>
+
+  <!-- KPI -->
+  <div class="row g-3 mb-3">
+    <div class="col-12 col-md-4">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_total">0</div>
+          <small>逾期總數（期間內新建）</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_open">0</div>
+          <small>逾期中（未結）</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-4">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_closed">0</div>
+          <small>逾期已結</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 圖表 -->
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="chart-box">
+        <h6 class="mb-3">依 Priority 的逾期（未結 vs 已結）</h6>
+        <canvas id="barChart" height="220"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="chart-box">
+        <h6 class="mb-3">趨勢（逾期未結 / 逾期已結 / 合計）</h6>
+        <canvas id="trendChart" height="220"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 逾期樣本 Top 50 -->
+  <div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>逾期樣本（Top 50，依逾期時數）</span>
+      <small class="text-muted">目標時數依上方 SLA 規則</small>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover table-fixed mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:120px;">Ticket No</th>
+              <th>主旨</th>
+              <th style="width:90px;">Priority</th>
+              <th style="width:110px;">狀態</th>
+              <th style="width:150px;">建立時間</th>
+              <th style="width:150px;">結束時間</th>
+              <th style="width:90px;">目標(h)</th>
+              <th style="width:90px;">實際(h)</th>
+              <th style="width:90px;">逾期(h)</th>
+            </tr>
+          </thead>
+          <tbody id="sampleTbody">
+          {% for s in chart_data.samples %}
+            <tr>
+              <td>{{ s.ticket_no }}</td>
+              <td title="{{ s.ticket_name }}">{{ s.ticket_name }}</td>
+              <td>{{ s.priority }}</td>
+              <td>{{ s.status }}</td>
+              <td>{{ s.created_at }}</td>
+              <td>{{ s.resolved_at }}</td>
+              <td class="text-end">{{ '%.0f'|format(s.target_h) }}</td>
+              <td class="text-end">{{ '%.2f'|format(s.tat_h) }}</td>
+              <td class="text-end fw-bold text-danger">{{ '%.2f'|format(s.overdue_h) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const apiUrl = "/reports/sla/overdue/data";
+  let barChart, trendChart;
+
+  function makeQS(form){
+    const p = new URLSearchParams(new FormData(form));
+    for (const [k,v] of [...p.entries()]) if (v === "") p.delete(k);
+    return p.toString();
+  }
+
+  function syncKPI(k){
+    const set = (id, v) => document.getElementById(id).textContent = v;
+    set("k_total", k.overdue_total || 0);
+    set("k_open",  k.overdue_open  || 0);
+    set("k_closed",k.overdue_closed|| 0);
+  }
+
+  function renderCharts(d){
+    // Bar (by priority)
+    const barCfg = {
+      type: "bar",
+      data: {
+        labels: d.bar.labels,
+        datasets: [
+          { label: "逾期未結", data: d.bar.open_breached,  stack: "s", yAxisID: "y" },
+          { label: "逾期已結", data: d.bar.closed_breached, stack: "s", yAxisID: "y" }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+      }
+    };
+    if (barChart) barChart.destroy();
+    barChart = new Chart(document.getElementById("barChart"), barCfg);
+
+    // Trend
+    const trendCfg = {
+      type: "bar",
+      data: {
+        labels: d.trend.labels,
+        datasets: [
+          { type: "bar",  label: "逾期未結", data: d.trend.open_breached,   stack: "t", yAxisID: "y" },
+          { type: "bar",  label: "逾期已結", data: d.trend.closed_breached, stack: "t", yAxisID: "y" },
+          { type: "line", label: "合計",     data: d.trend.total,           yAxisID: "y" }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: "bottom" } },
+        scales: { y: { beginAtZero: true, title: { display: true, text: "件數" } } }
+      }
+    };
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(document.getElementById("trendChart"), trendCfg);
+  }
+
+  function renderTable(samples){
+    const tbody = document.getElementById("sampleTbody");
+    tbody.innerHTML = samples.map(s => `
+      <tr>
+        <td>${s.ticket_no || ""}</td>
+        <td title="${s.ticket_name || ""}">${s.ticket_name || ""}</td>
+        <td>${s.priority || ""}</td>
+        <td>${s.status || ""}</td>
+        <td>${s.created_at || ""}</td>
+        <td>${s.resolved_at || ""}</td>
+        <td class="text-end">${(s.target_h ?? 0).toFixed ? s.target_h.toFixed(0) : s.target_h}</td>
+        <td class="text-end">${(s.tat_h ?? 0).toFixed ? s.tat_h.toFixed(2) : s.tat_h}</td>
+        <td class="text-end fw-bold text-danger">${(s.overdue_h ?? 0).toFixed ? s.overdue_h.toFixed(2) : s.overdue_h}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function reload(){
+    const qs = makeQS(document.getElementById("filterForm"));
+    const res = await fetch(`${apiUrl}?${qs}`, { headers: { "Accept":"application/json" }});
+    if(!res.ok){ alert("載入資料失敗"); return; }
+    const d = await res.json();
+    syncKPI(d.kpi);
+    renderCharts(d);
+    renderTable(d.samples);
+  }
+
+  document.getElementById("filterForm").addEventListener("submit", function(e){
+    e.preventDefault(); reload();
+  });
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    ["p1h","p2h","p3h","p4h","defh"].forEach(n=>{
+      const el = document.querySelector(`[name="${n}"]`); if(el) el.value = "";
+    });
+  });
+
+  // 首次畫面（用後端傳入的 chart_data）
+  syncKPI({{ chart_data.kpi|tojson }});
+  renderCharts({{ chart_data|tojson }});
+})();
+</script>
+{% endblock %}

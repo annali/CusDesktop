@@ -1,0 +1,26 @@
+{% extends "layout/base.html" %}
+{% block title %}操作日誌{% endblock %}
+{% block content %}
+<h4 class="fw-bold mb-3">最近操作日誌</h4>
+<div class="card card-clean">
+  <div class="table-responsive">
+    <table class="table table-hover m-0">
+      <thead><tr><th>#</th><th>時間</th><th>使用者</th><th>動作</th><th>目標</th><th>內容</th></tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td>{{ r.id }}</td>
+          <td>{{ r.log_time }}</td>
+          <td>{{ r.user.display_name or r.user.username if r.user else '-' }}</td>
+          <td>{{ r.action }}</td>
+          <td>{{ r.target_type }}#{{ r.target_id }}</td>
+          <td class="text-muted small">{{ r.content }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">沒有日誌</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

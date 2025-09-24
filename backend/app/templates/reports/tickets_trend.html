@@ -1,0 +1,193 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'tickets' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'tickets_trend' %}
+{% block title %}報表管理｜客服單進度趨勢{% endblock %}
+
+{% block page_css %}{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 20px rgba(15,23,42,.06); border-radius:14px; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .muted{ color:#64748b; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; align-items:center; gap:10px; }
+  .kpi .v{ font-size:1.75rem; font-weight:800; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">客服單進度趨勢</h2>
+    <div class="d-flex gap-4">
+      <div class="kpi">
+        <span class="muted">新增</span>
+        <span id="kpiCreated" class="v">{{ chart_data.totals.created }}</span>
+      </div>
+      <div class="kpi">
+        <span class="muted">完成</span>
+        <span id="kpiClosed" class="v">{{ chart_data.totals.closed }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 篩選工具列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.tickets_trend_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">專案</label>
+      <select name="project_sid" id="projectSid" class="form-select" style="min-width:260px">
+        <option value="">全部專案</option>
+        {% for p in projects %}
+          <option value="{{ p.project_sid }}" {% if params.project_sid and params.project_sid == p.project_sid %}selected{% endif %}>
+            {{ p.project_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">粒度</label>
+      <select name="interval" id="interval" class="form-select">
+        <option value="day" {% if params.interval == 'day' %}selected{% endif %}>日</option>
+        <option value="week" {% if params.interval == 'week' %}selected{% endif %}>週</option>
+        <option value="month" {% if params.interval == 'month' %}selected{% endif %}>月</option>
+      </select>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.tickets_trend_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <div class="card card-clean p-3">
+    <div class="d-flex align-items-center justify-content-between">
+      <h5 class="mb-2">新增 vs 完成（{{ '日' if params.interval=='day' else '週' if params.interval=='week' else '月' }}）</h5>
+    </div>
+    <canvas id="trendChart" style="max-height:420px"></canvas>
+  </div>
+
+  <div class="card card-clean p-3 mt-3">
+    <h5 class="mb-2">數值明細</h5>
+    <div class="table-responsive">
+      <table id="trendTable" class="table align-middle mb-0">
+        <thead>
+          <tr>
+            <th>區間</th>
+            <th class="text-end">新增</th>
+            <th class="text-end">完成</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in range(chart_data.labels|length) %}
+          <tr>
+            <td>{{ chart_data.labels[i] }}</td>
+            <td class="text-end">{{ chart_data.series[0].data[i] }}</td>
+            <td class="text-end">{{ chart_data.series[1].data[i] }}</td>
+          </tr>
+          {% endfor %}
+          {% if chart_data.labels|length == 0 %}
+          <tr><td colspan="3" class="text-center text-muted py-4">無資料</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const initData = {{ chart_data|tojson }};
+
+  // 折線圖
+  const ctx = document.getElementById('trendChart');
+  const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: initData.labels,
+      datasets: [
+        {
+          label: '新增',
+          data: initData.series[0].data,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: 2,
+          borderColor: '#527586',
+          backgroundColor: 'rgba(82,117,134,.12)',
+          fill: true
+        },
+        {
+          label: '完成',
+          data: initData.series[1].data,
+          tension: 0.25,
+          borderWidth: 2,
+          pointRadius: 2,
+          borderColor: '#16a34a',
+          backgroundColor: 'rgba(22,163,74,.10)',
+          fill: true
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 } }
+      }
+    }
+  });
+
+  // 明細表渲染
+  function renderTable(labels, series){
+    const tbody = document.querySelector('#trendTable tbody');
+    tbody.innerHTML = '';
+    if(!labels.length){
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">無資料</td></tr>';
+      return;
+    }
+    for(let i=0;i<labels.length;i++){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${labels[i]}</td>
+        <td class="text-end">${series[0].data[i]}</td>
+        <td class="text-end">${series[1].data[i]}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  }
+
+  // KPI
+  function renderKPI(totals){
+    document.getElementById('kpiCreated').textContent = totals.created;
+    document.getElementById('kpiClosed').textContent = totals.closed;
+  }
+
+  // 篩選 AJAX
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form));
+    fetch(`{{ url_for('reports_ticket.tickets_trend_data') }}?` + qs.toString(), {credentials:'same-origin'})
+      .then(r => r.json())
+      .then(data => {
+        chart.data.labels = data.labels;
+        chart.data.datasets[0].data = data.series[0].data;
+        chart.data.datasets[1].data = data.series[1].data;
+        chart.update();
+        renderTable(data.labels, data.series);
+        renderKPI(data.totals);
+      })
+      .catch(err => console.error(err));
+  });
+})();
+</script>
+{% endblock %}

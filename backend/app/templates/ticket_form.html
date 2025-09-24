@@ -1,0 +1,123 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}{{ '編輯客服單' if mode == 'edit' else '新增客服單' }}{% endblock %}
+
+{% block content %}
+<style>
+  .subline{color:#64748b;}
+</style>
+
+{% set _from_project = preselect_project_sid is defined and preselect_project_sid %}
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h2 class="fw-bold mb-0">{{ '編輯客服單' if mode == 'edit' else '新增客服單' }}</h2>
+  <div class="d-flex gap-2">
+    {% if _from_project %}
+      <a href="{{ url_for('project.project_detail', project_sid=preselect_project_sid, tab='tickets', ticket_sort='created_at', ticket_dir='desc', _anchor='pane-tickets') }}"
+         class="btn btn-outline-secondary">返回專案</a>
+    {% else %}
+      <a href="{{ url_for('ticket.ticket_list') }}" class="btn btn-outline-secondary">返回列表</a>
+    {% endif %}
+    {% if mode == 'edit' %}
+    <form method="post" action="{{ url_for('ticket.ticket_delete', ticket_sid=ticket.ticket_sid) }}"
+          onsubmit="return confirm('確定要刪除？');" class="d-inline">
+      <button type="submit" class="btn btn-outline-danger">刪除</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if mode == 'edit' %}
+  <div class="subline mb-3">客服單號：<span class="fw-semibold">{{ ticket.ticket_no }}</span></div>
+{% endif %}
+
+<div class="card shadow-sm border-0">
+  <div class="card-body">
+    <form method="post"
+          action="{% if mode == 'edit' %}{{ url_for('ticket.ticket_edit', ticket_sid=ticket.ticket_sid) }}{% else %}{{ url_for('ticket.ticket_create') }}{% endif %}">
+      <div class="row g-3">
+        <!-- 標題 -->
+        <div class="col-12">
+          <label class="form-label">標題</label>
+          <input type="text" name="ticket_name" class="form-control" required
+                 value="{{ ticket.ticket_name if mode=='edit' else '' }}">
+        </div>
+
+        <!-- 描述 -->
+        <div class="col-12">
+          <label class="form-label">描述</label>
+          <textarea name="ticket_description" class="form-control" rows="4">{{ ticket.ticket_description if mode=='edit' else '' }}</textarea>
+        </div>
+
+        <!-- 類別 -->
+        <div class="col-md-6">
+          <label class="form-label">類別</label>
+          <select name="ticket_type" class="form-select">
+            <option value="">請選擇</option>
+            {% for t in types %}
+              <option value="{{ t.type_sid }}"
+                {% if mode=='edit' and ticket.ticket_type==t.type_sid %}selected{% endif %}>
+                {{ t.type_name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- 關聯專案 -->
+        <div class="col-md-6">
+          <label class="form-label">關聯專案</label>
+          <select name="project_sid" class="form-select" required>
+            <option value="">請選擇</option>
+            {% for p in projects %}
+              {% set selected = (mode=='edit' and ticket.project_sid==p.project_sid) or (_from_project and preselect_project_sid==p.project_sid) %}
+              <option value="{{ p.project_sid }}" {{ 'selected' if selected else '' }}>
+                {{ p.project_name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- 狀態 -->
+        {% set status_val = (ticket.ticket_status or 'open')|lower if mode=='edit' else 'open' %}
+        {% set _status_opts = status_options if status_options is defined else
+            [('open','開啟'), ('received','已接收'), ('processing','處理中'), ('replied','已回覆'), ('onhold','暫停'), ('closed','結案')] %}
+
+        <div class="col-md-6">
+          <label class="form-label">狀態</label>
+          <select name="ticket_status" class="form-select" required>
+            {% for val, label in _status_opts %}
+              <option value="{{ val }}" {{ 'selected' if status_val == val else '' }}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <!-- 備註 -->
+        <div class="col-12">
+          <label class="form-label">備註</label>
+          <textarea name="memo" class="form-control" rows="3">{{ ticket.memo if mode=='edit' else '' }}</textarea>
+        </div>
+
+        <!-- 隱藏欄位 -->
+        <!-- ★ 新增單：來源固定寫入「2=外部」；編輯單：維持既有值，不開放修改 -->
+        <input type="hidden" name="source_type" value="{{ ticket.source_type if mode=='edit' else 2 }}">
+        {% if mode!='edit' %}
+          <input type="hidden" name="status" value="1">
+        {% endif %}
+        <input type="hidden" name="ticket_priority" value="{{ ticket.ticket_priority if mode=='edit' else 'normal' }}">
+
+        {% if _from_project %}
+          <input type="hidden" name="from_project_sid" value="{{ preselect_project_sid }}">
+        {% endif %}
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-4">
+        {% if _from_project %}
+          <a href="{{ url_for('project.project_detail', project_sid=preselect_project_sid, tab='tickets', ticket_sort='created_at', ticket_dir='desc', _anchor='pane-tickets') }}"
+             class="btn btn-outline-secondary">取消</a>
+        {% else %}
+          <a href="{{ url_for('ticket.ticket_list') }}" class="btn btn-outline-secondary">取消</a>
+        {% endif %}
+        <button type="submit" class="btn btn-primary">{{ '更新' if mode=='edit' else '建立' }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

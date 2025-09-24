@@ -1,0 +1,143 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}專案管理{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean { border: 0; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
+  .table thead th { color:#6b7280; font-weight:600; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="fw-bold">專案管理</h2>
+</div>
+
+<div class="card card-clean p-3 mb-3 overflow-visible">
+  <form id="filterForm" class="row g-2 align-items-center" method="get">
+    <div class="col-md-6">
+      <div class="input-group">
+        <span class="input-group-text"><i class="bi bi-search"></i></span>
+        <input class="form-control" name="q" placeholder="搜尋專案名稱、代碼或描述…" value="{{ q or '' }}">
+      </div>
+    </div>
+    <div class="col-md-3">
+      <!-- 狀態下拉 -->
+      <div class="dropdown w-100">
+        <input type="hidden" name="status" id="statusInput" value="{{ request.args.get('status','') }}">
+        <button class="btn btn-white w-100 d-flex justify-content-between align-items-center border"
+                type="button" id="statusBtn"
+                data-bs-toggle="dropdown" aria-expanded="false">
+          <span id="statusText">
+            {% set s = request.args.get('status') %}
+            {% if not s %}全部狀態{% elif s=='planning' %}規劃中{% elif s=='progress' %}進行中{% elif s=='done' %}已完成{% else %}{{ s }}{% endif %}
+          </span>
+          <i class="bi bi-chevron-down ms-2"></i>
+        </button>
+        <ul class="dropdown-menu w-100" aria-labelledby="statusBtn">
+          <li><a class="dropdown-item" href="#" data-value="">全部狀態</a></li>
+          <li><a class="dropdown-item" href="#" data-value="planning">規劃中</a></li>
+          <li><a class="dropdown-item" href="#" data-value="progress">進行中</a></li>
+          <li><a class="dropdown-item" href="#" data-value="done">已完成</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-outline-primary w-100" type="submit">
+        <i class="bi bi-funnel"></i> 搜尋
+      </button>
+    </div>
+  </form>
+</div>
+
+<div class="card card-clean">
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+      <tr>
+        <th style="width:180px;">專案代碼</th>
+        <th>專案名稱</th>
+        <th style="width:120px;">狀態</th>
+        <th style="width:140px;">專案經理</th>
+        <th style="width:140px;">結束日期</th>
+      </tr>
+      </thead>
+      <tbody>
+      {% for r in projects %}
+        <tr>
+          <td>
+            <a href="{{ url_for('project.project_detail', project_sid=r.id) }}" class="fw-semibold text-decoration-none">
+              {{ r.code }}
+            </a>
+          </td>
+          <td>{{ r.name }}</td>
+          <td><span class="{{ r.status_badge }}">{{ r.status }}</span></td>
+          <td>{{ r.manager }}</td>
+          <td class="text-nowrap">
+            {# 改這裡：用 data-utc 帶 UTC，前端轉成使用者時區的日期 #}
+            {% if r.end_dt %}
+              <span class="dt" data-utc="{{ r.end_dt.strftime('%Y-%m-%dT%H:%M:%SZ') }}" data-format="date"></span>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-center text-muted py-4">尚無資料</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // 狀態篩選
+  const form = document.getElementById('filterForm');
+  const statusInput = document.getElementById('statusInput');
+  const statusText  = document.getElementById('statusText');
+  document.querySelectorAll('#filterForm .dropdown-menu .dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const val = item.dataset.value || '';
+      statusInput.value = val;
+      statusText.textContent = item.textContent.trim();
+      form.submit();
+    });
+  });
+
+  // ===== 日期/時間 本地化顯示（不改後端） =====
+  (function formatLocalDateTimes(){
+    const els = document.querySelectorAll('.dt[data-utc]');
+    if (!els.length) return;
+
+    const locale = document.documentElement.lang || undefined;
+    // 想固定台灣時區就填 'Asia/Taipei'，否則用瀏覽器本機時區
+    const forcedTZ = undefined; // or 'Asia/Taipei'
+
+    const dateFmt = new Intl.DateTimeFormat(locale, {
+      year:'numeric', month:'2-digit', day:'2-digit',
+      timeZone: forcedTZ
+    });
+
+    els.forEach(el => {
+      const iso = el.getAttribute('data-utc');
+      if (!iso) return;
+      const d = new Date(iso); // 以 UTC 解析 (因為有 Z)
+      const mode = el.getAttribute('data-format') || 'datetime';
+
+      if (mode === 'date') {
+        const datePart = dateFmt.format(d).replace(/\./g,'/').replace(/-/g,'/');
+        el.textContent = datePart;
+      } else {
+        // 若未來有時間欄位，也可擴充
+        const timeFmt = new Intl.DateTimeFormat(locale, {
+          hour:'2-digit', minute:'2-digit', hour12:false, timeZone: forcedTZ
+        });
+        const datePart = dateFmt.format(d).replace(/\./g,'/').replace(/-/g,'/');
+        const timePart = timeFmt.format(d);
+        el.textContent = `${datePart} ${timePart}`;
+      }
+    });
+  })();
+});
+</script>
+{% endblock %}

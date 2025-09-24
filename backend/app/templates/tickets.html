@@ -1,0 +1,271 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}客服管理{% endblock %}
+
+{% block content %}
+
+<style>
+  .table-responsive.overflow-visible { overflow: visible !important; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold">客服管理</h2>
+  <a href="#"
+     class="btn btn-primary"
+     id="btnOpenCreate"
+     data-create-url="{{ url_for('ticket.ticket_create') }}"
+     data-bs-toggle="modal"
+     data-bs-target="#createTicketModal">
+    <i class="bi bi-plus-lg me-1"></i> 新增客服單
+  </a>
+</div>
+
+<div class="card p-3 mb-4 shadow-sm border-0">
+  <form method="get" class="row g-2 align-items-center">
+    <div class="col-md-4">
+      <input type="text" name="q" class="form-control" placeholder="搜尋客服單編號、標題" value="{{ request.args.get('q', '') }}">
+    </div>
+    <div class="col-md-3">
+      <select name="status_id" class="form-select">
+        <option value="">全部狀態</option>
+        {% for sid, sname in statuses %}
+          <option value="{{ sid }}" {{ 'selected' if request.args.get('status_id') == sid else '' }}>
+            {{ sname }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <select name="type_id" class="form-select">
+        <option value="">全部類別</option>
+        {% for t in types %}
+          <option value="{{ t.type_sid }}" {{ 'selected' if request.args.get('type_id') == t.type_sid|string else '' }}>
+            {{ t.type_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2 d-flex gap-2">
+      <button type="submit" class="btn btn-outline-primary w-100">
+        <i class="bi bi-search"></i> 搜尋
+      </button>
+      {# 清除搜尋：回到預設頁（不帶任何參數） #}
+      <a class="btn btn-outline-secondary" href="{{ url_for('ticket.ticket_list') }}" title="清除條件">
+        <i class="bi bi-x-circle"></i>
+      </a>
+    </div>
+  </form>
+</div>
+
+<div class="card shadow-sm border-0">
+  <div class="table-responsive overflow-visible">
+    <table class="table align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>客服單編號</th>
+          <th>標題</th>
+          <th>狀態</th>
+          <th>建立人</th>
+          <th>類別</th>
+          <th>建立時間</th>
+          <th class="text-center" style="width:72px;">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if tickets and tickets|length %}
+          {% for t in tickets %}
+          <tr>
+            <td class="fw-semibold">
+              <a href="{{ url_for('ticket.detail', ticket_sid=t.id) }}"
+                 class="text-decoration-none link-primary">
+                {{ t.code }}
+              </a>
+            </td>
+            <td class="text-break">{{ t.subject }}</td>
+            <td>
+              {% set badge_map = {
+                  'open':'warning',
+                  'received':'primary',
+                  'processing':'info',
+                  'replied':'success',
+                  'onhold':'dark',
+                  'closed':'secondary',
+                  'NEW':'secondary'
+              } %}
+              <span class="badge bg-{{ badge_map.get(t.status, 'light') }} {% if badge_map.get(t.status) in ['warning','light'] %}text-dark{% endif %}">
+                {{ t.status_label }}
+              </span>
+            </td>
+            <td class="text-nowrap">{{ t.creator }}</td>
+            <td><span class="badge bg-light text-dark border">{{ t.type or '-' }}</span></td>
+
+            <td class="text-nowrap">
+              {% if t.created_at %}
+                <span class="dt" data-utc="{{ t.created_at.strftime('%Y-%m-%dT%H:%M:%SZ') }}"></span>
+              {% endif %}
+            </td>
+
+            <td class="text-center">
+              <div class="dropdown">
+                <button class="btn btn-sm btn-light" type="button" data-bs-toggle="dropdown" data-bs-display="static">
+                  <i class="bi bi-three-dots-vertical"></i>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                  <li>
+                    <a class="dropdown-item" href="{{ url_for('ticket.ticket_edit', ticket_sid=t.id) }}">
+                      <i class="bi bi-pencil me-1"></i> 編輯
+                    </a>
+                  </li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li>
+                    <form method="post" action="{{ url_for('ticket.ticket_delete', ticket_sid=t.id) }}" onsubmit="return confirm('確定要刪除？');">
+                      <button class="dropdown-item text-danger" type="submit">
+                        <i class="bi bi-trash me-1"></i> 刪除
+                      </button>
+                    </form>
+                  </li>
+                </ul>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="7" class="text-center py-4 text-muted">查無資料</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{# 新增客服單 Modal #}
+<div class="modal fade" id="createTicketModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="createTicketForm">
+        <div class="modal-header">
+          <h5 class="modal-title">新增客服單</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">標題</label>
+              <input type="text" class="form-control" name="ticket_name" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">描述</label>
+              <textarea class="form-control" name="ticket_description" rows="4"></textarea>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">類別</label>
+              <select class="form-select" name="ticket_type">
+                <option value="">請選擇</option>
+                {% for t in types %}
+                  <option value="{{ t.type_sid }}">{{ t.type_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label">關聯專案</label>
+              <select class="form-select" name="project_sid" required>
+                <option value="">請選擇</option>
+                {% for p in projects %}
+                  <option value="{{ p.project_sid }}">{{ p.project_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label">建立人</label>
+              <select class="form-select" name="create_usr" required>
+                <option value="">請選擇</option>
+                {% for u in users %}
+                  <option value="{{ u.user_sid }}" {% if current_user.is_authenticated and u.user_sid == current_user.user_sid %}selected{% endif %}>
+                    {{ u.username }}{% if current_user.is_authenticated and u.user_sid == current_user.user_sid %}（我）{% endif %}
+                  </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <input type="hidden" name="ticket_status" value="open">
+            <input type="hidden" name="ticket_priority" value="normal">
+            <input type="hidden" name="source_type" value="0">
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <div class="me-auto d-flex align-items-center gap-2">
+            <div id="createSpinner" class="spinner-border spinner-border-sm text-primary d-none" role="status"></div>
+            <small class="text-muted">提交後將自動建立單號</small>
+          </div>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">建立</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // ====== 列表時間：把 UTC ISO 轉成本地顯示 ======
+  (function formatLocalTimes(){
+    const els = document.querySelectorAll('.dt[data-utc]');
+    if (!els.length) return;
+
+    const locale = document.documentElement.lang || undefined;
+    const forcedTZ = undefined; // 若要固定台灣可改 'Asia/Taipei'
+
+    const dateFmt = new Intl.DateTimeFormat(locale, {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      timeZone: forcedTZ
+    });
+    const timeFmt = new Intl.DateTimeFormat(locale, {
+      hour: '2-digit', minute: '2-digit', hour12: false,
+      timeZone: forcedTZ
+    });
+
+    els.forEach(el => {
+      const iso = el.getAttribute('data-utc');
+      if (!iso) return;
+      const d = new Date(iso);
+      const datePart = dateFmt.format(d).replace(/\./g, '/').replace(/-/g,'/');
+      const timePart = timeFmt.format(d);
+      el.textContent = `${datePart} ${timePart}`;
+    });
+  })();
+
+  // ====== 新增客服單（AJAX） ======
+  const createBtn = document.getElementById('btnOpenCreate');
+  const createUrl = createBtn?.getAttribute('data-create-url');
+  const modalEl   = document.getElementById('createTicketModal');
+  const form      = document.getElementById('createTicketForm');
+  const spinner   = document.getElementById('createSpinner');
+
+  modalEl.addEventListener('show.bs.modal', async () => {
+    if (!createUrl) return;
+    try { await fetch(createUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } }); }
+    catch(e){ console.warn('預檢失敗：', e); }
+  });
+
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!createUrl) return;
+    spinner.classList.remove('d-none');
+    try {
+      const fd = new FormData(form);
+      const res = await fetch(createUrl, { method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" }, body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) { alert(data.message || '建立失敗'); return; }
+      bootstrap.Modal.getInstance(modalEl)?.hide();
+      location.reload();
+    } catch (err) {
+      alert('建立失敗：' + err);
+    } finally {
+      spinner.classList.add('d-none');
+    }
+  });
+});
+</script>
+{% endblock %}

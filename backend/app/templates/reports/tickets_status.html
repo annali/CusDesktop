@@ -1,0 +1,182 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'tickets' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'tickets_status' %}
+{% block title %}報表管理｜客服單狀態分布{% endblock %}
+
+{% block page_css %}{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 20px rgba(15,23,42,.06); border-radius:14px; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .muted{ color:#64748b; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; align-items:center; gap:10px; }
+  .kpi .v{ font-size:1.75rem; font-weight:800; }
+  .progress.slim{ height:8px; background:#eef2f7; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">客服單狀態分布</h2>
+    <div class="kpi"><span class="muted">總筆數</span> <span id="kpiTotal" class="v">{{ chart_data.total }}</span></div>
+  </div>
+
+  <!-- 篩選工具列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.tickets_status_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">專案</label>
+      <select name="project_sid" id="projectSid" class="form-select" style="min-width:260px">
+        <option value="">全部專案</option>
+        {% for p in projects %}
+          <option value="{{ p.project_sid }}" {% if params.project_sid and params.project_sid == p.project_sid %}selected{% endif %}>
+            {{ p.project_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.tickets_status_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <div class="d-flex align-items-center justify-content-between">
+          <h5 class="mb-2">狀態甜甜圈</h5>
+        </div>
+        <canvas id="statusChart" style="max-height:360px"></canvas>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">分布明細</h5>
+        <div class="table-responsive">
+          <table id="statusTable" class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="width:38%">狀態</th>
+                <th class="text-end" style="width:12%">筆數</th>
+                <th class="text-end" style="width:12%">占比</th>
+                <th>視覺</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in chart_data.rows %}
+              <tr>
+                <td>{{ r.status }}</td>
+                <td class="text-end">{{ r.count }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.percent) }}%</td>
+                <td>
+                  <div class="progress slim">
+                    <div class="progress-bar" role="progressbar" style="width: {{ r.percent }}%"></div>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.rows|length == 0 %}
+              <tr><td colspan="4" class="text-center text-muted py-4">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  // 從後端嵌入初始資料
+  const initData = {{ chart_data|tojson }};
+  const toPercent = (v)=> (Math.round(v*100)/100).toFixed(2);
+
+  // 甜甜圈圖初始化
+  const ctx = document.getElementById('statusChart');
+  const chart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: initData.labels,
+      datasets: [{
+        data: initData.counts,
+        backgroundColor: initData.palette.length ? initData.palette : undefined,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: {
+          label: (ctx) => {
+            const total = initData.total || (ctx.dataset.data || []).reduce((a,b)=>a+b,0);
+            const val = ctx.parsed;
+            const pct = total ? (val/total*100) : 0;
+            return `${ctx.label}: ${val}（${toPercent(pct)}%）`;
+          }
+        }}
+      },
+      cutout: '60%'
+    }
+  });
+
+  // 更新 KPI 與表格
+  function renderTable(rows, total){
+    const tbody = document.querySelector('#statusTable tbody');
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">無資料</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.status}</td>
+        <td class="text-end">${r.count}</td>
+        <td class="text-end">${toPercent(r.percent)}%</td>
+        <td>
+          <div class="progress slim">
+            <div class="progress-bar" role="progressbar" style="width:${r.percent}%"></div>
+          </div>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+    document.getElementById('kpiTotal').textContent = total;
+  }
+
+  // 篩選表單 AJAX
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form));
+    fetch(`{{ url_for('reports_ticket.tickets_status_data') }}?` + qs.toString(), {credentials:'same-origin'})
+      .then(r => r.json())
+      .then(data => {
+        // 更新圖
+        chart.data.labels = data.labels;
+        chart.data.datasets[0].data = data.counts;
+        chart.data.datasets[0].backgroundColor = data.palette && data.palette.length ? data.palette : undefined;
+        chart.update();
+
+        // 更新表格/KPI
+        renderTable(data.rows, data.total);
+      })
+      .catch(err => console.error(err));
+  });
+})();
+</script>
+{% endblock %}

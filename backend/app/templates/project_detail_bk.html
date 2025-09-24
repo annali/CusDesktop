@@ -1,0 +1,234 @@
+{% extends 'dashboard_layout.html' %}
+{% block title %}專案總覽{% endblock %}
+
+{% block content %}
+<style>
+  .mini{font-size:.875rem; color:#64748b;}
+  .back-crumb{display:inline-flex; align-items:center; gap:.25rem; color:#475569; text-decoration:none; padding:.25rem .4rem; border-radius:8px; transition:background-color .15s ease, color .15s ease, box-shadow .15s ease;}
+  .back-crumb .bi{line-height:1; font-size:1rem;}
+  .back-crumb:hover{ background:#f1f5f9; color:#0f172a; text-decoration:none; }
+  .meta-dot{opacity:.55;}
+
+  .page-title { font-weight: 800; letter-spacing:.2px; }
+  .page-meta { color:#6b7280; }
+
+  .card-smooth{ border:0; border-radius:14px; box-shadow:0 6px 20px rgba(15,23,42,.06); background:#fff; }
+  /* 與 ticket_detail.html 一致的卡片樣式 */
+  .card-clean{ border:0; border-radius:14px; box-shadow:0 6px 20px rgba(15,23,42,.06); background:#fff; }
+
+  .equal-row { align-items: stretch; }
+  .equal-card { height: 100%; }
+
+  .kv{display:flex; justify-content:space-between; align-items:center; padding:.55rem 0; border-bottom:1px dashed #eef2f7;}
+  .kv:last-child{border-bottom:0;}
+  .kv .key{color:#6b7280;}
+  .kv .val{color:#0f172a;}
+
+  .status-pill{ display:inline-flex; align-items:center; gap:.35rem; font-weight:600; font-size:.85rem; background:#fff7e6; color:#b76e00; border:1px solid #ffe2a8; border-radius:999px; padding:.25rem .6rem; }
+  .status-pill.done{ background:#ecfdf5; color:#0f766e; border-color:#a7f3d0; }
+  .status-pill.plan{ background:#eef2ff; color:#4338ca; border-color:#c7d2fe; }
+
+  .stat-row{display:flex; align-items:center; justify-content:space-between; padding:.45rem .75rem; border-radius:10px; background:#f8fafc; border:1px solid #eef2f7;}
+  .stat-row + .stat-row{margin-top:.55rem;}
+  .stat-name{color:#475569;}
+  .count-badge{ font-weight:700; color:#0f172a; background:#fff; border:1px solid #e5e7eb; border-radius:999px; padding:.15rem .6rem; min-width:3.2rem; text-align:center; }
+
+  .tabs-wrap{ margin-top: 1rem; }
+  .tabs-head{ background:#fff; border:1px solid #eef2f7; border-radius:.75rem; padding:.35rem; display:flex; gap:.35rem; align-items:center; }
+  .tabs-head .nav-link{ border:0; border-radius:.65rem; padding:.5rem .9rem; color:#314a57; transition: background-color .15s ease, color .15s ease, box-shadow .15s ease; }
+  .tabs-head .nav-link:not(.active):hover{ background: rgba(var(--bs-primary-rgb), .06); color:#23343d; }
+  .tabs-head .nav-link.active{ background: var(--main-color); color: #fff !important; font-weight:700; box-shadow: 0 4px 12px rgba(82,117,134,.18); }
+  .tabs-head .nav-link.active i{ color:#fff; }
+
+  .reply-wrap { border-radius: 16px; background: #f6f9fb; border: 1px solid #e6edf3; padding: 14px 16px; }
+  .reply-textarea { width: 100%; min-height: 120px; resize: vertical; border-radius: 12px; border: 2px solid #d7e0e8; padding: 10px 12px; background: #fff; outline: 0; transition: border-color .15s, box-shadow .15s; font-size: 14px; }
+  .reply-textarea:focus { border-color: var(--main-color); box-shadow: 0 0 0 .15rem rgba(var(--bs-primary-rgb), .15); }
+  .btn-send { display:inline-flex; align-items:center; gap:.35rem; font-size:13px; padding:6px 12px; border-radius:8px; background:#cbd5e1; border-color:#cbd5e1; color:#fff; }
+  .btn-send:not([disabled]){ background:var(--main-color); border-color:var(--main-color); }
+  .btn-send:not([disabled]):hover{ filter:brightness(.95); }
+
+  .reply-feed { padding: 0 2px 1rem; }
+  .feed-item{ position:relative; padding: 1rem 1rem 1rem 2.25rem; border-left: 3px solid #eef2f7; }
+  .feed-item + .feed-item{ margin-top: .75rem; }
+  .feed-item .dot{ position:absolute; left:-6px; top:1.25rem; width:14px; height:14px; border-radius:50%; background:#fff; border:3px solid var(--main-color); }
+  .feed-head{ display:flex; justify-content:space-between; align-items:center; }
+  .feed-name{ font-weight:700; color:#0f172a; display:flex; gap:.5rem; align-items:center; }
+  .feed-date{ color:#94a3b8; font-size:.9rem; display:flex; gap:.35rem; align-items:center; }
+  .feed-body{ margin-top:.35rem; color:#1f2937; line-height:1.75; }
+  .feed-body, .feed-item, .feed-item *{ overflow: visible; }
+
+  /* 與 ticket_detail.html 一致的空狀態樣式 */
+  .empty-files{
+    display:flex; align-items:center; justify-content:center; gap:.5rem;
+    color:#64748b; min-height:180px; text-align:center;
+  }
+  .empty-files .bi{ font-size:1.1rem; opacity:.8; }
+
+  /* 附件卡片固定高度，讓白底更寬大 */
+  .files-card{ min-height: 180px; }
+</style>
+
+<!-- 上方麵包屑 -->
+<div class="d-flex align-items-center justify-content-between mb-2">
+  <div class="d-flex align-items-center gap-2 mini">
+    <a class="back-crumb" href="{{ url_for('project.project_list') }}">
+      <i class="bi bi-chevron-left"></i><span>返回列表</span>
+    </a>
+    <span>代碼 <span class="fw-semibold">{{ meta.code }}</span></span>
+    <span class="meta-dot">|</span>
+    <span>建立於 {{ meta.created_at }}</span>
+  </div>
+</div>
+
+<div class="row g-4 equal-row">
+  <div class="col-lg-6">
+    <div class="card-smooth equal-card">
+      <div class="p-3"><div class="fw-bold fs-5 mb-2">專案總覽：{{ p.project_name }}</div></div>
+      <div class="px-4 pb-4">
+        <div class="fw-bold mb-2">專案詳情</div>
+        <div class="mb-3">
+          <div class="key mb-1">描述</div>
+          <div class="val">{{ p.project_description or '—' }}</div>
+        </div>
+        <div class="kv"><div class="key">專案負責人：</div><div class="val">{{ manager_name }}</div></div>
+        <div class="kv"><div class="key">開始日期：</div><div class="val">{% if p.start_dt %}{{ p.start_dt.strftime('%Y/%m/%d') }}{% else %}—{% endif %}</div></div>
+        <div class="kv"><div class="key">結束日期：</div><div class="val">{% if p.end_dt %}{{ p.end_dt.strftime('%Y/%m/%d') }}{% else %}—{% endif %}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card-smooth equal-card">
+      <div class="d-flex justify-content-between align-items-center p-3">
+        <div class="fw-bold fs-5">專案狀態</div>
+        <span class="status-pill {% if p.project_status=='已完成' %}done{% elif p.project_status=='規劃中' %}plan{% endif %}">{{ p.project_status }}</span>
+      </div>
+      <div class="px-4 pb-4">
+        <div class="key mb-2">相關客服單狀態</div>
+        <div class="stat-row"><div class="stat-name">處理中</div><div class="count-badge">{{ processing }} 筆</div></div>
+        <div class="stat-row"><div class="stat-name">已回覆</div><div class="count-badge">{{ replied }} 筆</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs-wrap">
+  <ul class="nav tabs-head" id="projTabs" role="tablist">
+    <li class="nav-item"><button class="nav-link active d-inline-flex align-items-center gap-1" id="tab-replies" data-bs-toggle="tab" data-bs-target="#pane-replies" type="button"><i class="bi bi-chat-square-text"></i> 專案回覆（{{ comments|length }}）</button></li>
+    <li class="nav-item"><button class="nav-link d-inline-flex align-items-center gap-1" id="tab-tickets" data-bs-toggle="tab" data-bs-target="#pane-tickets" type="button"><i class="bi bi-graph-up-arrow"></i> 客服單（{{ tickets|length }}）</button></li>
+    <li class="nav-item"><button class="nav-link d-inline-flex align-items-center gap-1" id="tab-files" data-bs-toggle="tab" data-bs-target="#pane-files" type="button"><i class="bi bi-paperclip"></i> 附件（{{ attachments|length }}）</button></li>
+  </ul>
+
+  <div class="tab-content py-3">
+    <!-- 回覆 -->
+    <div class="tab-pane fade show active" id="pane-replies" role="tabpanel" aria-labelledby="tab-replies">
+      <div class="reply-wrap mb-3">
+        <form id="replyForm" method="post" action="{{ url_for('project.project_comment_add', project_sid=p.project_sid) }}">
+          <textarea id="replyContent" name="content" class="reply-textarea" placeholder="輸入您的回覆…" required></textarea>
+          <div class="mt-2">
+            <button id="btnSend" type="submit" class="btn btn-send" disabled><i class="bi bi-send"></i> 送出</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="reply-feed">
+        {% for c in comments %}
+          <div class="feed-item">
+            <span class="dot"></span>
+            <div class="feed-head">
+              <div class="feed-name"><i class="bi bi-person"></i>{{ c.author }}</div>
+              <div class="feed-date"><i class="bi bi-clock"></i>{% if c.ts %}{{ c.ts.strftime('%Y/%m/%d %H:%M') }}{% endif %}</div>
+            </div>
+            <div class="feed-body">{{ c.content }}</div>
+          </div>
+        {% else %}
+          <div class="text-muted px-2 py-1">尚無回覆</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- 客服單 -->
+    <div class="tab-pane fade" id="pane-tickets" role="tabpanel" aria-labelledby="tab-tickets">
+      <div class="d-flex justify-content-end mb-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('ticket.ticket_create') }}?project_sid={{ p.project_sid }}">
+          <i class="bi bi-plus-lg me-1"></i> 新增客服單
+        </a>
+      </div>
+
+      <div class="row g-3">
+        {% for t in tickets %}
+          <div class="col-lg-6">
+            <div class="p-3 ticket-card bg-white position-relative">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <a href="{{ url_for('ticket.detail', ticket_sid=t.id, from_project=p.project_sid) }}"
+                     class="badge bg-light text-dark border me-2 text-decoration-none">
+                    {{ t.code }}
+                  </a>
+                  <span class="{{ t.status_badge }}">{{ t.status }}</span>
+                </div>
+              </div>
+
+              <div class="mt-2 fw-semibold">
+                <a href="{{ url_for('ticket.detail', ticket_sid=t.id, from_project=p.project_sid) }}"
+                   class="stretched-link text-decoration-none link-dark">
+                  {{ t.name }}
+                </a>
+              </div>
+
+              {% if t.desc %}<div class="text-muted mt-1">{{ t.desc }}</div>{% endif %}
+              <div class="row g-2 mt-2 ticket-meta">
+                <div class="col-6"><i class="bi bi-person-bounding-box me-1"></i>客戶：{{ t.creator }}</div>
+                <div class="col-6"><i class="bi bi-person-workspace me-1"></i>負責人：{{ t.assignee }}</div>
+                <div class="col-6"><i class="bi bi-calendar-plus me-1"></i>建立：{% if t.created_at %}{{ t.created_at.strftime('%Y/%m/%d %H:%M') }}{% endif %}</div>
+                <div class="col-6"><i class="bi bi-clock-history me-1"></i>更新：{% if t.updated_at %}{{ t.updated_at.strftime('%Y/%m/%d %H:%M') }}{% else %}—{% endif %}</div>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="col-12"><div class="text-muted">尚無客服單</div></div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- 附件（樣式與 ticket_detail.html 保持一致） -->
+    <div class="tab-pane fade" id="pane-files" role="tabpanel" aria-labelledby="tab-files">
+      <div class="card card-clean files-card">
+        <div class="card-body">
+          {% if attachments %}
+            <ul class="list-group list-group-flush">
+              {% for a in attachments %}
+                <li class="list-group-item d-flex justify-content-between">
+                  <div>
+                    <i class="bi bi-file-earmark-text me-2"></i>{{ a.name }}
+                    <small class="text-muted ms-2">{{ a.size }}</small>
+                  </div>
+                  <div class="text-muted">
+                    {% if a.created_at %}{{ a.created_at.strftime('%Y/%m/%d %H:%M') }}{% endif %}
+                  </div>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="empty-files">
+              <i class="bi bi-paperclip"></i>
+              <div>尚無附件</div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const ta=document.getElementById('replyContent'); const btn=document.getElementById('btnSend'); const frm=document.getElementById('replyForm');
+  function toggle(){ btn.disabled = !(ta.value.trim().length>0); }
+  ta?.addEventListener('input', toggle); toggle();
+  ta?.addEventListener('keydown', e=>{ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'&&!btn.disabled) frm.submit(); });
+  frm?.addEventListener('submit', e=>{ if(ta.value.trim().length===0){ e.preventDefault(); toggle(); }});
+})();
+</script>
+{% endblock %}

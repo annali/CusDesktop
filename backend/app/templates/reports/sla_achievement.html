@@ -1,0 +1,298 @@
+{% extends "dashboard_layout.html" %}
+{% block title %}SLA 達成率｜客服中心{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <style>
+    /* 讓兩顆按鈕在窄欄位也能平均分配且不溢出 */
+    .form-actions .btn { min-width: 0; }
+  </style>
+
+  <div class="d-flex align-items-center mb-3">
+    <h3 class="me-3 mb-0">SLA 達成率</h3>
+    <span class="badge text-bg-secondary">Reports ▸ SLA</span>
+  </div>
+
+  <!-- 查詢條 -->
+  <form id="filterForm" class="row g-2 align-items-end mb-3">
+    <div class="col-12 col-md-3">
+      <label class="form-label">專案</label>
+      <select class="form-select" name="project_sid">
+        {% for p in projects %}
+          <option value="{{p.project_sid}}" {{ 'selected' if params.project_sid|string == p.project_sid|string else '' }}>
+            [{{p.project_no}}] {{p.project_name}}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-6 col-md-2">
+      <label class="form-label">起日</label>
+      <input type="date" class="form-control" name="date_from" value="{{ params.date_from }}">
+    </div>
+    <div class="col-6 col-md-2">
+      <label class="form-label">迄日</label>
+      <input type="date" class="form-control" name="date_to" value="{{ params.date_to }}">
+    </div>
+
+    <div class="col-12 col-md-2">
+      <label class="form-label">區間</label>
+      <select class="form-select" name="interval">
+        <option value="day"   {{ 'selected' if params.interval=='day'   else '' }}>日</option>
+        <option value="week"  {{ 'selected' if params.interval=='week'  else '' }}>週</option>
+        <option value="month" {{ 'selected' if params.interval=='month' else '' }}>月</option>
+      </select>
+    </div>
+
+    <div class="col-6 col-md-1">
+      <label class="form-label">P1(h)</label>
+      <input type="number" min="0" class="form-control" name="p1h" value="{{ params.p1h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P2(h)</label>
+      <input type="number" min="0" class="form-control" name="p2h" value="{{ params.p2h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P3(h)</label>
+      <input type="number" min="0" class="form-control" name="p3h" value="{{ params.p3h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">P4(h)</label>
+      <input type="number" min="0" class="form-control" name="p4h" value="{{ params.p4h }}">
+    </div>
+    <div class="col-6 col-md-1">
+      <label class="form-label">預設(h)</label>
+      <input type="number" min="0" class="form-control" name="defh" value="{{ params.defh }}">
+    </div>
+
+    <!-- 動作按鈕：等寬 -->
+    <div class="col-12 col-md-2">
+      <div class="d-flex gap-2 form-actions">
+        <button type="submit" class="btn btn-primary flex-fill">套用</button>
+        <button type="button" id="resetBtn" class="btn btn-outline-secondary flex-fill">重設</button>
+      </div>
+    </div>
+  </form>
+
+  <!-- KPI -->
+  <div class="row g-3 mb-3">
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_total">{{ chart_data.kpi.total }}</div>
+          <small>期間內新建</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_closed">{{ chart_data.kpi.closed }}</div>
+          <small>已結</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_rate_closed">{{ chart_data.kpi.achieve_rate_closed }}%</div>
+          <small>達成率（僅已結）</small>
+        </div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card kpi-card">
+        <div class="card-body">
+          <div class="display-6" id="k_rate_now">{{ chart_data.kpi.achieve_rate_all_now }}%</div>
+          <small>達成率（目前整體）</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 圖表區 -->
+  <div class="row g-3">
+    <div class="col-12 col-lg-4">
+      <div class="chart-box">
+        <h6 class="mb-3">已結 SLA 達成/逾期</h6>
+        <canvas id="pieChart" height="220"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-lg-8">
+      <div class="chart-box">
+        <h6 class="mb-3">依 Priority 的已結 SLA（達成 vs 逾期）</h6>
+        <canvas id="barChart" height="220"></canvas>
+      </div>
+    </div>
+    <div class="col-12">
+      <div class="chart-box">
+        <h6 class="mb-3">趨勢（已結達成/逾期＋達成率）</h6>
+        <canvas id="trendChart" height="90"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- 逾期樣本 -->
+  <div class="card mt-3">
+    <div class="card-header d-flex justify-content-between align-items-center">
+      <span>逾期樣本（Top 50，依逾期時數）</span>
+      <small class="text-muted">目標時數會依你上方設定的 SLA 規則</small>
+    </div>
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table table-sm table-striped table-hover table-fixed mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 120px;">Ticket No</th>
+              <th>主旨</th>
+              <th style="width: 100px;">Priority</th>
+              <th style="width: 150px;">建立時間</th>
+              <th style="width: 150px;">結束時間</th>
+              <th style="width: 90px;">目標(h)</th>
+              <th style="width: 90px;">實際(h)</th>
+              <th style="width: 90px;">逾期(h)</th>
+            </tr>
+          </thead>
+          <tbody id="breachTbody">
+          {% for s in chart_data.breached_samples %}
+            <tr>
+              <td>{{ s.ticket_no }}</td>
+              <td title="{{ s.ticket_name }}">{{ s.ticket_name }}</td>
+              <td>{{ s.priority }}</td>
+              <td>{{ s.created_at }}</td>
+              <td>{{ s.resolved_at }}</td>
+              <td class="text-end">{{ '%.0f'|format(s.target_h) }}</td>
+              <td class="text-end">{{ '%.2f'|format(s.tat_h) }}</td>
+              <td class="text-end fw-bold text-danger">{{ '%.2f'|format(s.overdue_h) }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const apiUrl = "/reports/sla/rate/data";
+
+  let pieChart, barChart, trendChart;
+
+  function makeQS(form) {
+    const p = new URLSearchParams(new FormData(form));
+    for (const [k,v] of [...p.entries()]) {
+      if (v === "") p.delete(k);
+    }
+    return p.toString();
+  }
+
+  function syncKPI(k){
+    const set = (id, v) => document.getElementById(id).textContent = v;
+    set("k_total", k.total);
+    set("k_closed", k.closed);
+    set("k_rate_closed", (k.achieve_rate_closed || 0).toFixed(1) + "%");
+    set("k_rate_now", (k.achieve_rate_all_now || 0).toFixed(1) + "%");
+  }
+
+  function renderCharts(d){
+    // Pie
+    const pieCfg = {
+      type: "doughnut",
+      data: { labels: d.pie.labels, datasets: [{ data: d.pie.counts }] },
+      options: {
+        plugins: { legend: { position: "bottom" }, tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.formattedValue}` } } },
+        cutout: "60%"
+      }
+    };
+    if (pieChart) pieChart.destroy();
+    pieChart = new Chart(document.getElementById("pieChart"), pieCfg);
+
+    // Bar by priority
+    const barCfg = {
+      type: "bar",
+      data: {
+        labels: d.bar_by_priority.labels,
+        datasets: [
+          { label: "達成", data: d.bar_by_priority.achieved, stack: "s1" },
+          { label: "逾期", data: d.bar_by_priority.breached, stack: "s1" }
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: "bottom" } },
+        scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+      }
+    };
+    if (barChart) barChart.destroy();
+    barChart = new Chart(document.getElementById("barChart"), barCfg);
+
+    // Trend
+    const trendCfg = {
+      type: "bar",
+      data: {
+        labels: d.trend.labels,
+        datasets: [
+          { type: "bar", label: "已結-達成", data: d.trend.closed_achieved, stack: "t", yAxisID: "y" },
+          { type: "bar", label: "已結-逾期", data: d.trend.closed_breached, stack: "t", yAxisID: "y" },
+          { type: "line", label: "達成率(%)", data: d.trend.rate, yAxisID: "y1" }
+        ]
+      },
+      options: {
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: "件數" } },
+          y1: { beginAtZero: true, position: "right", title: { display: true, text: "%" }, suggestedMax: 100 }
+        }
+      }
+    };
+    if (trendChart) trendChart.destroy();
+    trendChart = new Chart(document.getElementById("trendChart"), trendCfg);
+  }
+
+  function renderTable(samples){
+    const tbody = document.getElementById("breachTbody");
+    tbody.innerHTML = samples.map(s => `
+      <tr>
+        <td>${s.ticket_no || ""}</td>
+        <td title="${s.ticket_name || ""}">${s.ticket_name || ""}</td>
+        <td>${s.priority || ""}</td>
+        <td>${s.created_at || ""}</td>
+        <td>${s.resolved_at || ""}</td>
+        <td class="text-end">${(s.target_h ?? 0).toFixed ? s.target_h.toFixed(0) : s.target_h}</td>
+        <td class="text-end">${(s.tat_h ?? 0).toFixed ? s.tat_h.toFixed(2) : s.tat_h}</td>
+        <td class="text-end fw-bold text-danger">${(s.overdue_h ?? 0).toFixed ? s.overdue_h.toFixed(2) : s.overdue_h}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function reload(){
+    const qs = makeQS(document.getElementById("filterForm"));
+    const res = await fetch(`${apiUrl}?${qs}`, { headers: { "Accept": "application/json" }});
+    if (!res.ok) { alert("載入資料失敗"); return; }
+    const d = await res.json();
+    syncKPI(d.kpi);
+    renderCharts(d);
+    renderTable(d.breached_samples);
+  }
+
+  document.getElementById("filterForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    reload();
+  });
+
+  document.getElementById("resetBtn").addEventListener("click", function(){
+    ["p1h","p2h","p3h","p4h","defh"].forEach(n => {
+      const el = document.querySelector(`[name="${n}"]`);
+      if (el) el.value = "";
+    });
+  });
+
+  // 首次載入：用後端 render 的 chart_data 直接畫一次（避免空白）
+  renderCharts({{ chart_data|tojson }});
+})();
+</script>
+{% endblock %}

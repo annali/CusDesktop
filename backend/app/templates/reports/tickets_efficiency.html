@@ -1,0 +1,227 @@
+{% extends "dashboard_layout.html" %}
+{% set ACTIVE_MENU = ACTIVE_MENU or 'reports' %}
+{% set ACTIVE_SUBMENU = ACTIVE_SUBMENU or 'tickets' %}
+{% set ACTIVE_ITEM = ACTIVE_ITEM or 'tickets_eff' %}
+{% block title %}報表管理｜客服單處理效率{% endblock %}
+
+{% block content %}
+<style>
+  .card-clean{ border:0; box-shadow:0 6px 20px rgba(15,23,42,.06); border-radius:14px; }
+  .page-title{ font-weight:800; letter-spacing:.2px; }
+  .muted{ color:#64748b; }
+  .toolbar-inline{ display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap; }
+  .kpi{ display:flex; flex-direction:column; padding:10px 14px; border-radius:12px; background:#fff;
+        box-shadow:0 6px 18px rgba(15,23,42,.06); min-width:150px; }
+  .kpi .label{ font-size:.9rem; color:#64748b; }
+  .kpi .value{ font-size:1.45rem; font-weight:800; }
+</style>
+
+<div class="container-fluid px-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="page-title mb-0">客服單處理效率</h2>
+  </div>
+
+  <!-- 篩選工具列 -->
+  <form id="filterForm" class="toolbar-inline mb-3" action="{{ url_for('reports_ticket.tickets_efficiency_page') }}" method="get">
+    <div>
+      <label class="form-label mb-1">專案</label>
+      <select name="project_sid" id="projectSid" class="form-select" style="min-width:260px">
+        <option value="">全部專案</option>
+        {% for p in projects %}
+          <option value="{{ p.project_sid }}" {% if params.project_sid and params.project_sid == p.project_sid %}selected{% endif %}>
+            {{ p.project_name }}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="form-label mb-1">起日</label>
+      <input type="date" class="form-control" name="date_from" id="dateFrom" value="{{ params.date_from }}">
+    </div>
+    <div>
+      <label class="form-label mb-1">迄日</label>
+      <input type="date" class="form-control" name="date_to" id="dateTo" value="{{ params.date_to }}">
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-primary">套用</button>
+      <a href="{{ url_for('reports_ticket.tickets_efficiency_page') }}" class="btn btn-outline-secondary">重設</a>
+    </div>
+  </form>
+
+  <!-- KPI 區 -->
+  <div class="row g-3 mb-2">
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">完成單數</div><div id="kpiDone" class="value">{{ chart_data.kpi.done_count }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">平均解決時間</div><div id="kpiAvg" class="value">{{ '%.2f'|format(chart_data.kpi.avg_hours) }} 小時</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">中位數解決時間</div><div id="kpiMedian" class="value">{{ '%.2f'|format(chart_data.kpi.median_hours) }} 小時</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">P90 解決時間</div><div id="kpiP90" class="value">{{ '%.2f'|format(chart_data.kpi.p90_hours) }} 小時</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">未完成單數</div><div id="kpiOpen" class="value">{{ chart_data.kpi.open_count }}</div></div></div>
+    <div class="col-6 col-lg-2"><div class="kpi"><div class="label">未完成平均齡</div><div id="kpiOpenAvg" class="value">{{ '%.2f'|format(chart_data.kpi.open_avg_age_hours) }} 小時</div></div></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">解決時間分布</h5>
+        <canvas id="effBar" style="max-height:360px"></canvas>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">分布明細</h5>
+        <div class="table-responsive">
+          <table id="effTable" class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>區間</th>
+                <th class="text-end">筆數</th>
+                <th class="text-end">占比</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for b in chart_data.buckets %}
+              <tr>
+                <td>{{ b.label }}</td>
+                <td class="text-end">{{ b.count }}</td>
+                <td class="text-end">{{ '%.2f'|format(b.pct) }}%</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.buckets|length == 0 %}
+              <tr><td colspan="3" class="text-center text-muted py-4">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12">
+      <div class="card card-clean p-3">
+        <h5 class="mb-2">已完成樣本（近 50 筆）</h5>
+        <div class="table-responsive">
+          <table id="sampleTable" class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th style="min-width:120px">Ticket No</th>
+                <th>標題</th>
+                <th class="text-end" style="width:120px">解決（小時）</th>
+                <th style="width:160px">建立時間</th>
+                <th style="width:160px">完成時間</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in chart_data.samples %}
+              <tr>
+                <td>{{ r.ticket_no }}</td>
+                <td class="text-truncate" style="max-width:420px">{{ r.ticket_name }}</td>
+                <td class="text-end">{{ '%.2f'|format(r.resolved_hours) }}</td>
+                <td>{{ r.created_at }}</td>
+                <td>{{ r.resolved_at }}</td>
+              </tr>
+              {% endfor %}
+              {% if chart_data.samples|length == 0 %}
+              <tr><td colspan="5" class="text-center text-muted py-4">無資料</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function(){
+  const initData = {{ chart_data|tojson }};
+
+  // 長條圖
+  const ctx = document.getElementById('effBar');
+  const bar = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: initData.series.labels,
+      datasets: [{
+        label: '完成筆數',
+        data: initData.series.data,
+        borderWidth: 1,
+        backgroundColor: 'rgba(82,117,134,.35)',
+        borderColor: '#527586'
+      }]
+    },
+    options: {
+      responsive: true,
+      indexAxis: 'y',
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+    }
+  });
+
+  function renderKPIs(k){
+    document.getElementById('kpiDone').textContent = k.done_count;
+    document.getElementById('kpiAvg').textContent = (k.avg_hours || 0).toFixed(2) + ' 小時';
+    document.getElementById('kpiMedian').textContent = (k.median_hours || 0).toFixed(2) + ' 小時';
+    document.getElementById('kpiP90').textContent = (k.p90_hours || 0).toFixed(2) + ' 小時';
+    document.getElementById('kpiOpen').textContent = k.open_count;
+    document.getElementById('kpiOpenAvg').textContent = (k.open_avg_age_hours || 0).toFixed(2) + ' 小時';
+  }
+
+  function renderTable(buckets){
+    const tbody = document.querySelector('#effTable tbody');
+    tbody.innerHTML = '';
+    if(!buckets.length){
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted py-4">無資料</td></tr>';
+      return;
+    }
+    buckets.forEach(b=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${b.label}</td>
+        <td class="text-end">${b.count}</td>
+        <td class="text-end">${(b.pct || 0).toFixed(2)}%</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderSamples(rows){
+    const tbody = document.querySelector('#sampleTable tbody');
+    tbody.innerHTML = '';
+    if(!rows.length){
+      tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">無資料</td></tr>';
+      return;
+    }
+    rows.forEach(r=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${r.ticket_no ?? ''}</td>
+        <td class="text-truncate" style="max-width:420px">${r.ticket_name ?? ''}</td>
+        <td class="text-end">${(r.resolved_hours || 0).toFixed(2)}</td>
+        <td>${r.created_at ?? ''}</td>
+        <td>${r.resolved_at ?? ''}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  // AJAX 篩選
+  const form = document.getElementById('filterForm');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    const qs = new URLSearchParams(new FormData(form));
+    fetch(`{{ url_for('reports_ticket.tickets_efficiency_data') }}?` + qs.toString(), {credentials:'same-origin'})
+      .then(r => r.json())
+      .then(data => {
+        bar.data.labels = data.series.labels;
+        bar.data.datasets[0].data = data.series.data;
+        bar.update();
+        renderKPIs(data.kpi);
+        renderTable(data.buckets);
+        renderSamples(data.samples);
+      })
+      .catch(err => console.error(err));
+  });
+})();
+</script>
+{% endblock %}
